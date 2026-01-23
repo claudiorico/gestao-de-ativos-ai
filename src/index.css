@@ -2,95 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Financial Dashboard Design System - Premium SaaS Aesthetic */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Palette based on provided brand colors:
+       Navy #011752, Light Gray #EBEBEB, Mint #ADDABE, Green #24CE6B, Yellow #FFC928 */
 
+    /* Core backgrounds */
+    --background: 0 0% 92%;
+    --foreground: 224 98% 16%;
+
+    /* Card surfaces */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 224 98% 16%;
 
+    /* Popover/dropdown */
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 224 98% 16%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary - Navy */
+    --primary: 224 98% 16%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Secondary - Mint */
+    --secondary: 143 39% 77%;
+    --secondary-foreground: 224 60% 18%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Muted surfaces (used by zebra table stripes) */
+    --muted: 143 22% 90%;
+    --muted-foreground: 224 18% 40%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent - Green */
+    --accent: 145 70% 47%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Semantic Colors */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* Success/Profit */
+    --success: 145 70% 47%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 145 45% 90%;
 
-    --radius: 0.5rem;
+    /* Warning/Attention (Yellow) */
+    --warning: 45 100% 58%;
+    --warning-foreground: 224 98% 16%;
+    --warning-muted: 45 90% 90%;
 
-    --sidebar-background: 0 0% 98%;
+    /* Loss/Negative */
+    --loss: 0 72% 51%;
+    --loss-foreground: 0 0% 100%;
+    --loss-muted: 0 60% 96%;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    /* Borders and inputs */
+    --border: 0 0% 84%;
+    --input: 0 0% 84%;
+    --ring: 224 98% 16%;
 
-    --sidebar-primary: 240 5.9% 10%;
+    --radius: 0.75rem;
 
-    --sidebar-primary-foreground: 0 0% 98%;
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 224 20% 35%;
+    --sidebar-primary: 224 98% 16%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 143 22% 92%;
+    --sidebar-accent-foreground: 224 60% 18%;
+    --sidebar-border: 0 0% 88%;
+    --sidebar-ring: 224 98% 16%;
 
-    --sidebar-accent: 240 4.8% 95.9%;
+    /* Chart colors */
+    --chart-1: 145 70% 47%;
+    --chart-2: 224 98% 16%;
+    --chart-3: 224 60% 22%;
+    --chart-4: 45 100% 58%;
+    --chart-5: 0 72% 51%;
 
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(224 98% 16%), hsl(224 98% 28%));
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(0 0% 96%));
+    --gradient-success: linear-gradient(135deg, hsl(145 70% 47%), hsl(145 70% 40%));
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 224 98% 10%;
+    --foreground: 0 0% 92%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 224 60% 14%;
+    --card-foreground: 0 0% 92%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 224 60% 14%;
+    --popover-foreground: 0 0% 92%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    /* In dark mode, use Green for better contrast on CTAs */
+    --primary: 145 70% 47%;
+    --primary-foreground: 224 98% 10%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 224 30% 18%;
+    --secondary-foreground: 0 0% 92%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 224 30% 18%;
+    --muted-foreground: 0 0% 78%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 143 35% 22%;
+    --accent-foreground: 0 0% 92%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --success: 145 70% 47%;
+    --success-foreground: 224 98% 10%;
+    --success-muted: 145 35% 16%;
+
+    --warning: 45 100% 58%;
+    --warning-foreground: 224 98% 10%;
+    --warning-muted: 45 50% 16%;
+
+    --loss: 0 62% 50%;
+    --loss-foreground: 0 0% 100%;
+    --loss-muted: 0 50% 15%;
+
+    --border: 224 30% 22%;
+    --input: 224 30% 22%;
+    --ring: 145 70% 47%;
+
+    --sidebar-background: 224 70% 12%;
+    --sidebar-foreground: 0 0% 84%;
+    --sidebar-primary: 145 70% 47%;
+    --sidebar-primary-foreground: 224 98% 10%;
+    --sidebar-accent: 224 30% 18%;
+    --sidebar-accent-foreground: 0 0% 92%;
+    --sidebar-border: 224 30% 18%;
+    --sidebar-ring: 145 70% 47%;
+
+    --chart-1: 145 70% 50%;
+    --chart-2: 45 100% 62%;
+    --chart-3: 143 70% 70%;
+    --chart-4: 224 98% 55%;
+    --chart-5: 0 60% 55%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(145 70% 47%), hsl(143 39% 55%));
+    --gradient-card: linear-gradient(180deg, hsl(224 60% 16%), hsl(224 70% 12%));
+    --gradient-success: linear-gradient(135deg, hsl(145 70% 50%), hsl(145 70% 42%));
   }
 }
 
@@ -100,6 +155,49 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .gradient-card {
+    background: var(--gradient-card);
+  }
+
+  .gradient-success {
+    background: var(--gradient-success);
+  }
+
+  /* Financial number styling */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Glass effect for cards */
+  .glass {
+    backdrop-filter: blur(12px);
+    background: hsl(var(--card) / 0.8);
+  }
+
+  /* Subtle shadow for elevated cards */
+  .shadow-card {
+    box-shadow: 
+      0 1px 3px hsl(220 25% 10% / 0.04),
+      0 4px 12px hsl(220 25% 10% / 0.06);
+  }
+
+  .shadow-card-hover {
+    box-shadow: 
+      0 2px 6px hsl(220 25% 10% / 0.06),
+      0 8px 24px hsl(220 25% 10% / 0.1);
   }
 }

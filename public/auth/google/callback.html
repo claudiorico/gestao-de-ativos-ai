@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Google Drive - Autenticação</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #f9fafb;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+    .loading {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #10b981;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    h1 { font-size: 1.25rem; color: #111827; margin-bottom: 0.5rem; }
+    p { color: #6b7280; font-size: 0.875rem; }
+    .error { color: #ef4444; }
+    .success { color: #10b981; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="loading" id="loading"></div>
+    <h1 id="title">Conectando...</h1>
+    <p id="message">Processando autenticação do Google Drive</p>
+  </div>
+  
+  <script>
+    // Parse the hash fragment for OAuth token
+    function parseHash() {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      return {
+        access_token: params.get('access_token'),
+        expires_in: params.get('expires_in'),
+        error: params.get('error'),
+        error_description: params.get('error_description'),
+      };
+    }
+    
+    const result = parseHash();
+    const PENDING_TOKEN_KEY = 'investpro_gdrive_pending';
+    
+    function showSuccess(message) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('title').textContent = 'Conectado!';
+      document.getElementById('title').classList.add('success');
+      document.getElementById('message').textContent = message;
+    }
+    
+    function showError(message) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('title').textContent = 'Erro na autenticação';
+      document.getElementById('title').classList.add('error');
+      document.getElementById('message').textContent = message;
+    }
+    
+    if (result.access_token) {
+      const tokenData = {
+        access_token: result.access_token,
+        expires_in: parseInt(result.expires_in) || 3600,
+        timestamp: Date.now()
+      };
+      
+      // Try to send message to opener (popup flow)
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.postMessage({
+            type: 'google-auth-success',
+            access_token: result.access_token,
+            expires_in: parseInt(result.expires_in) || 3600,
+          }, window.location.origin);
+          
+          showSuccess('Esta janela fechará automaticamente...');
+          setTimeout(() => window.close(), 1500);
+        } catch (e) {
+          // If postMessage fails, use fallback
+          localStorage.setItem(PENDING_TOKEN_KEY, JSON.stringify(tokenData));
+          showSuccess('Redirecionando...');
+          setTimeout(() => {
+            window.location.href = '/settings?oauth=success';
+          }, 500);
+        }
+      } else {
+        // Fallback: No opener (redirect flow or popup blocked)
+        // Save token to localStorage and redirect to settings
+        localStorage.setItem(PENDING_TOKEN_KEY, JSON.stringify(tokenData));
+        showSuccess('Redirecionando para configurações...');
+        setTimeout(() => {
+          window.location.href = '/settings?oauth=success';
+        }, 500);
+      }
+    } else if (result.error) {
+      // Error handling
+      const errorMessage = result.error_description || result.error || 'Falha na autenticação';
+      
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.postMessage({
+            type: 'google-auth-error',
+            error: errorMessage,
+          }, window.location.origin);
+          
+          showError(errorMessage);
+          setTimeout(() => window.close(), 3000);
+        } catch (e) {
+          showError(errorMessage + '. Feche esta janela e tente novamente.');
+        }
+      } else {
+        showError(errorMessage + '. Feche esta janela e tente novamente.');
+      }
+    } else {
+      // No token and no error - unexpected state
+      document.getElementById('message').textContent = 'Estado inesperado. Feche esta janela e tente novamente.';
+    }
+  </script>
+</body>
+</html>

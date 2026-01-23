@@ -1,0 +1,317 @@
+/**
+ * IndexedDB wrapper for encrypted local storage
+ * All financial data is stored locally with zero-knowledge
+ * Supports multi-user through namespaced database names
+ */
+
+const DB_NAME_PREFIX = 'investpro_secure';
+const DB_VERSION = 2;
+
+// Current user namespace (set when user logs in)
+let currentNamespace: string = 'default';
+
+export interface DBStores {
+  portfolios: string;
+  assets: string;
+  transactions: string;
+  dividends: string;
+  cash_movements: string;
+  settings: string;
+  metadata: string;
+}
+
+const STORES: (keyof DBStores)[] = [
+  'portfolios',
+  'assets', 
+  'transactions',
+  'dividends',
+  'cash_movements',
+  'settings',
+  'metadata',
+];
+
+let dbInstance: IDBDatabase | null = null;
+let currentDbName: string | null = null;
+
+/**
+ * Get the database name for the current user
+ */
+function getDbName(): string {
+  return currentNamespace === 'default' 
+    ? DB_NAME_PREFIX 
+    : `${DB_NAME_PREFIX}_${currentNamespace}`;
+}
+
+/**
+ * Set the current user namespace for IndexedDB
+ * This allows each Google account to have its own separate database
+ */
+export function setUserNamespace(namespace: string): void {
+  const newNamespace = namespace || 'default';
+  
+  if (newNamespace !== currentNamespace) {
+    console.log('[IndexedDB] Switching namespace to:', newNamespace);
+    
+    // Close current connection if namespace changes
+    if (dbInstance) {
+      dbInstance.close();
+      dbInstance = null;
+      currentDbName = null;
+    }
+    
+    currentNamespace = newNamespace;
+  }
+}
+
+/**
+ * Get the current user namespace
+ */
+export function getUserNamespace(): string {
+  return currentNamespace;
+}
+
+/**
+ * List all user namespaces (databases) in the browser
+ */
+export async function listUserNamespaces(): Promise<string[]> {
+  if (!indexedDB.databases) {
+    console.log('[IndexedDB] databases() not supported');
+    return [];
+  }
+  
+  try {
+    const databases = await indexedDB.databases();
+    return databases
+      .map(db => db.name)
+      .filter((name): name is string => 
+        name !== undefined && name.startsWith(DB_NAME_PREFIX)
+      )
+      .map(name => {
+        if (name === DB_NAME_PREFIX) return 'default';
+        return name.replace(`${DB_NAME_PREFIX}_`, '');
+      });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Request persistent storage to prevent browser from clearing data
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (navigator.storage && navigator.storage.persist) {
+    const isPersisted = await navigator.storage.persisted();
+    if (!isPersisted) {
+      const granted = await navigator.storage.persist();
+      console.log('[IndexedDB] Persistent storage:', granted ? 'granted' : 'denied');
+      return granted;
+    }
+    console.log('[IndexedDB] Storage already persistent');
+    return true;
+  }
+  console.log('[IndexedDB] Persistent storage API not available');
+  return false;
+}
+
+/**
+ * Returns whether storage is already persistent.
+ * - true: persistent
+ * - false: not persistent
+ * - null: API not available in this browser
+ */
+export async function isPersistentStorageEnabled(): Promise<boolean | null> {
+  if (!navigator.storage || !navigator.storage.persisted) return null;
+  try {
+    return await navigator.storage.persisted();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Opens or creates the IndexedDB database
+ */
+export function openDatabase(): Promise<IDBDatabase> {
+  const dbName = getDbName();
+  
+  return new Promise((resolve, reject) => {
+    // If we have an instance for the current db name, reuse it
+    if (dbInstance && currentDbName === dbName) {
+      resolve(dbInstance);
+      return;
+    }
+    
+    // Close existing connection if switching databases
+    if (dbInstance && currentDbName !== dbName) {
+      dbInstance.close();
+      dbInstance = null;
+    }
+
+    // Request persistent storage first
+    requestPersistentStorage().catch(console.error);
+
+    console.log('[IndexedDB] Opening database:', dbName, 'version:', DB_VERSION);
+    const request = indexedDB.open(dbName, DB_VERSION);
+
+    request.onerror = () => {
+      console.error('[IndexedDB] Failed to open database:', request.error);
+      reject(new Error('Failed to open database'));
+    };
+
+    request.onsuccess = () => {
+      dbInstance = request.result;
+      currentDbName = dbName;
+      console.log('[IndexedDB] Database opened successfully:', dbName);
+      
+      // Handle connection close
+      dbInstance.onclose = () => {
+        console.log('[IndexedDB] Database connection closed');
+        dbInstance = null;
+        currentDbName = null;
+      };
+      
+      resolve(dbInstance);
+    };
+
+    request.onupgradeneeded = (event) => {
+      console.log('[IndexedDB] Upgrading database...');
+      const db = (event.target as IDBOpenDBRequest).result;
+
+      // Create object stores for each data type
+      STORES.forEach((storeName) => {
+        if (!db.objectStoreNames.contains(storeName)) {
+          console.log('[IndexedDB] Creating store:', storeName);
+          db.createObjectStore(storeName, { keyPath: 'id' });
+        }
+      });
+    };
+  });
+}
+
+/**
+ * Stores encrypted data in IndexedDB
+ */
+export async function setItem<T extends keyof DBStores>(
+  store: T,
+  id: string,
+  encryptedData: string
+): Promise<void> {
+  const db = await openDatabase();
+  
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(store, 'readwrite');
+    const objectStore = transaction.objectStore(store);
+    
+    const request = objectStore.put({ id, data: encryptedData, updatedAt: Date.now() });
+
+    request.onerror = () => reject(new Error(`Failed to store ${store}`));
+    request.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * Retrieves encrypted data from IndexedDB
+ */
+export async function getItem<T extends keyof DBStores>(
+  store: T,
+  id: string
+): Promise<string | null> {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(store, 'readonly');
+    const objectStore = transaction.objectStore(store);
+    
+    const request = objectStore.get(id);
+
+    request.onerror = () => reject(new Error(`Failed to retrieve ${store}`));
+    request.onsuccess = () => {
+      resolve(request.result?.data ?? null);
+    };
+  });
+}
+
+/**
+ * Gets all items from a store
+ */
+export async function getAllItems<T extends keyof DBStores>(
+  store: T
+): Promise<Array<{ id: string; data: string; updatedAt: number }>> {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(store, 'readonly');
+    const objectStore = transaction.objectStore(store);
+    
+    const request = objectStore.getAll();
+
+    request.onerror = () => reject(new Error(`Failed to retrieve all ${store}`));
+    request.onsuccess = () => resolve(request.result ?? []);
+  });
+}
+
+/**
+ * Deletes an item from IndexedDB
+ */
+export async function deleteItem<T extends keyof DBStores>(
+  store: T,
+  id: string
+): Promise<void> {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(store, 'readwrite');
+    const objectStore = transaction.objectStore(store);
+    
+    const request = objectStore.delete(id);
+
+    request.onerror = () => reject(new Error(`Failed to delete ${store}`));
+    request.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * Clears all data from a store
+ */
+export async function clearStore<T extends keyof DBStores>(store: T): Promise<void> {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(store, 'readwrite');
+    const objectStore = transaction.objectStore(store);
+    
+    const request = objectStore.clear();
+
+    request.onerror = () => reject(new Error(`Failed to clear ${store}`));
+    request.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * Exports all encrypted data for backup
+ */
+export async function exportAllData(): Promise<Record<string, unknown[]>> {
+  const data: Record<string, unknown[]> = {};
+
+  for (const store of STORES) {
+    data[store] = await getAllItems(store);
+  }
+
+  return data;
+}
+
+/**
+ * Completely wipes the database
+ */
+export async function wipeDatabase(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (dbInstance) {
+      dbInstance.close();
+      dbInstance = null;
+    }
+
+    const request = indexedDB.deleteDatabase(getDbName());
+    request.onerror = () => reject(new Error('Failed to wipe database'));
+    request.onsuccess = () => resolve();
+  });
+}
