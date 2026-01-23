@@ -2,8 +2,39 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, x-api-key, content-type',
 };
+
+// --- Security: API key + lightweight rate limiting (best-effort, in-memory) ---
+const REQUIRED_API_KEY = (Deno.env.get('EDGE_FUNCTIONS_API_KEY') ?? '').trim();
+
+type RateBucket = { tokens: number; lastRefillMs: number };
+const rateBuckets = new Map<string, RateBucket>();
+
+function getClientIp(req: Request): string {
+  const xfwd = req.headers.get('x-forwarded-for');
+  if (xfwd) return xfwd.split(',')[0].trim();
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+function allowRequest(ip: string, opts?: { capacity?: number; refillPerSec?: number }): boolean {
+  const capacity = opts?.capacity ?? 60; // burst
+  const refillPerSec = opts?.refillPerSec ?? 1; // ~60/min
+
+  const now = Date.now();
+  const b = rateBuckets.get(ip) ?? { tokens: capacity, lastRefillMs: now };
+  const elapsedSec = Math.max(0, (now - b.lastRefillMs) / 1000);
+  const refill = elapsedSec * refillPerSec;
+  const tokens = Math.min(capacity, b.tokens + refill);
+
+  const allowed = tokens >= 1;
+  rateBuckets.set(ip, { tokens: allowed ? tokens - 1 : tokens, lastRefillMs: now });
+  return allowed;
+}
 
 // Bump this string whenever you change this function, so the UI can confirm
 // the deployed version.
@@ -1141,6 +1172,26 @@ serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // API key (recommended): require only if configured as a secret
+  if (REQUIRED_API_KEY) {
+    const provided = (req.headers.get('x-api-key') ?? '').trim();
+    if (provided !== REQUIRED_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // Rate limiting (best-effort): per IP
+  const ip = getClientIp(req);
+  if (!allowRequest(ip)) {
+    return new Response(JSON.stringify({ error: 'Too Many Requests' }), {
+      status: 429,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 
   try {
