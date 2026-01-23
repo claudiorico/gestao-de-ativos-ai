@@ -1,1 +1,7 @@
-project_id = "aynpvhwpbxamszvnihfn"
+project_id = "zeusxhxachwmnzrokepz"
+
+[functions.get-quotes]
+verify_jwt = false
+
+[functions.get-price-history]
+verify_jwt = false
