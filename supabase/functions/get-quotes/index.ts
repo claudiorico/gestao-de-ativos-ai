@@ -11,6 +11,32 @@ const REQUIRED_API_KEY = (Deno.env.get('EDGE_FUNCTIONS_API_KEY') ?? '').trim();
 type RateBucket = { tokens: number; lastRefillMs: number };
 const rateBuckets = new Map<string, RateBucket>();
 
+function isFromOurApp(req: Request): boolean {
+  try {
+    const origin = (req.headers.get('origin') ?? '').trim();
+
+    const apikey = (req.headers.get('apikey') ?? '').trim();
+    const expectedAnon = (Deno.env.get('SUPABASE_ANON_KEY') ?? '').trim();
+    const expectedPub = (Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? '').trim();
+
+    const apikeyMatches =
+      (!!apikey && !!expectedAnon && apikey === expectedAnon) ||
+      (!!apikey && !!expectedPub && apikey === expectedPub);
+
+    // Primary: Lovable app origin
+    if (origin) {
+      const host = new URL(origin).hostname.toLowerCase();
+      const isLovableHost = host.endsWith('.lovableproject.com') || host.endsWith('.lovable.app');
+      if (isLovableHost) return true;
+    }
+
+    // Fallback: apikey matches this project's public/anon key
+    return apikeyMatches;
+  } catch {
+    return false;
+  }
+}
+
 function getClientIp(req: Request): string {
   const xfwd = req.headers.get('x-forwarded-for');
   if (xfwd) return xfwd.split(',')[0].trim();
@@ -1176,12 +1202,16 @@ serve(async (req) => {
 
   // API key (recommended): require only if configured as a secret
   if (REQUIRED_API_KEY) {
-    const provided = (req.headers.get('x-api-key') ?? '').trim();
-    if (provided !== REQUIRED_API_KEY) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Allow calls coming from our Lovable app origin without exposing the secret in the client.
+    // External callers still must provide x-api-key.
+    if (!isFromOurApp(req)) {
+      const provided = (req.headers.get('x-api-key') ?? '').trim();
+      if (provided !== REQUIRED_API_KEY) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
   }
 
