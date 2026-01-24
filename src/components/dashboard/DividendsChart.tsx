@@ -77,6 +77,11 @@ export function DividendsChart() {
     };
   }, [dividends]);
 
+  const formattedTotal = useMemo(() => formatCurrency(totalProventos), [totalProventos]);
+  const totalCurrencyMatch = formattedTotal.match(/^R\$\s*(.+)$/);
+  const totalCurrencyPrefix = totalCurrencyMatch ? "R$" : null;
+  const totalValueBody = totalCurrencyMatch ? totalCurrencyMatch[1] : formattedTotal;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -84,8 +89,8 @@ export function DividendsChart() {
       transition={{ duration: 0.4, delay: 0.5 }}
       className="rounded-xl border border-border bg-card p-6 shadow-card"
     >
-      <div className="mb-6 flex items-start justify-between">
-        <div>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h3 className="text-lg font-semibold text-foreground">
             Proventos Recebidos
           </h3>
@@ -93,10 +98,18 @@ export function DividendsChart() {
             Histórico mensal de dividendos e JCP
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-2xl font-bold text-foreground tabular-nums">
-            {formatCurrency(totalProventos)}
-          </p>
+
+        <div className="min-w-0 text-left sm:text-right">
+          <div className="flex min-w-0 items-start gap-1 sm:justify-end">
+            {totalCurrencyPrefix ? (
+              <span className="mt-0.5 shrink-0 text-[10px] font-semibold leading-none text-muted-foreground sm:mt-1 sm:text-sm">
+                {totalCurrencyPrefix}
+              </span>
+            ) : null}
+            <p className="min-w-0 whitespace-normal break-words text-lg font-bold leading-snug tracking-tight text-foreground tabular-nums sm:text-2xl sm:leading-none">
+              {totalValueBody}
+            </p>
+          </div>
           <p className="text-xs text-muted-foreground">
             {isLoading ? 'Carregando…' : 'Total no ano'}
           </p>
