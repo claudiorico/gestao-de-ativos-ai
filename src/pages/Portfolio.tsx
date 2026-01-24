@@ -132,19 +132,20 @@ export default function PortfolioPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between"
+          className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
         >
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-foreground">Portfólio</h1>
-            <p className="text-muted-foreground">
+            <p className="text-muted-foreground break-words">
               {portfoliosWithAssets.length > 0 ? (
                 <>
-                  Patrimônio total:{' '}
+                  <span className="whitespace-nowrap">Patrimônio total:</span>{' '}
                   <span className="font-semibold text-foreground">
                     {formatCurrency(totalValue)}
                   </span>
                   <span className="text-muted-foreground">
-                    {' '}• Peso total:{' '}
+                    <span className="mx-1">•</span>
+                    <span className="whitespace-nowrap">Peso total:</span>{' '}
                     <span className="font-medium text-foreground tabular-nums">
                       {totalTargetAllocation.toFixed(1)}%
                     </span>
@@ -162,12 +163,12 @@ export default function PortfolioPage() {
             </p>
           </div>
           {portfoliosWithAssets.length > 0 && (
-            <div className="flex items-center gap-2">
-              <div className="flex flex-col items-end">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <div className="flex w-full flex-col items-start sm:w-auto sm:items-end">
                 <Button
                   type="button"
                   variant="outline"
-                  className="gap-2"
+                  className="w-full gap-2 sm:w-auto"
                   onClick={refreshQuotesNow}
                   disabled={isLoading}
                   title="Atualiza as cotações agora"
@@ -182,7 +183,7 @@ export default function PortfolioPage() {
                 )}
               </div>
 
-              <Button className="gap-2" onClick={handleCreatePortfolio}>
+              <Button className="w-full gap-2 sm:w-auto" onClick={handleCreatePortfolio}>
                 <Plus className="h-4 w-4" />
                 Nova Carteira
               </Button>
@@ -204,7 +205,7 @@ export default function PortfolioPage() {
 
         {/* Portfolio Cards */}
         {!isLoading && portfoliosWithAssets.length > 0 && (
-          <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 xl:grid-cols-3">
             {portfoliosWithAssets.map((portfolio, index) => (
               <PortfolioCard
                 key={portfolio.id}

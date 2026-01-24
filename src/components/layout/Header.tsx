@@ -52,10 +52,10 @@ export function Header() {
   const syncStatus = getSyncStatus();
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-card px-6">
+    <header className="flex flex-col gap-3 border-b border-border bg-card px-4 py-3 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:px-6">
       {/* Search */}
-      <div className="flex items-center gap-4">
-        <div className="relative w-full max-w-md">
+      <div className="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
+        <div className="relative w-full sm:w-[28rem]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
@@ -63,11 +63,13 @@ export function Header() {
             className="h-10 w-full border-0 bg-muted/50 pl-10 pr-4 text-sm focus-visible:ring-1 focus-visible:ring-primary"
           />
         </div>
-        <PrivacyBadge />
+        <div className="shrink-0">
+          <PrivacyBadge />
+        </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
         {/* Sync Status & Backup */}
         <BackupRestoreDialog
           trigger={
@@ -137,7 +139,7 @@ export function Header() {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="ml-2 flex h-10 items-center gap-3 rounded-lg px-2 hover:bg-muted"
+              className="ml-1 flex h-10 min-w-0 items-center gap-3 rounded-lg px-2 hover:bg-muted sm:ml-2"
             >
               <Avatar className="h-8 w-8 ring-2 ring-primary/20">
                 <AvatarImage 
@@ -149,7 +151,7 @@ export function Header() {
                   {getUserInitials()}
                 </AvatarFallback>
               </Avatar>
-              <div className="hidden flex-col items-start md:flex">
+              <div className="hidden min-w-0 flex-col items-start md:flex">
                 <span className="text-sm font-medium">
                   {user?.displayName || 'Usuário'}
                 </span>
