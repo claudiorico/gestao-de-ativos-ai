@@ -40,6 +40,10 @@ export function MetricCard({
     warning: "bg-warning/10 text-warning",
   };
 
+  const currencyMatch = value.match(/^R\$\s*(.+)$/);
+  const currencyPrefix = currencyMatch ? "R$" : null;
+  const valueBody = currencyMatch ? currencyMatch[1] : value;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -54,9 +58,16 @@ export function MetricCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-3">
           <p className="truncate text-sm font-medium text-muted-foreground">{title}</p>
-          <p className="whitespace-normal break-words text-base font-bold leading-snug tracking-tight text-foreground tabular-nums sm:text-3xl sm:leading-none">
-            {value}
-          </p>
+          <div className="flex items-start gap-1">
+            {currencyPrefix ? (
+              <span className="mt-0.5 shrink-0 text-[10px] font-semibold leading-none text-muted-foreground sm:mt-1 sm:text-sm">
+                {currencyPrefix}
+              </span>
+            ) : null}
+            <p className="min-w-0 whitespace-normal break-words text-sm font-bold leading-snug tracking-tight text-foreground tabular-nums sm:text-3xl sm:leading-none">
+              {valueBody}
+            </p>
+          </div>
           {change !== undefined && (
             <div className="flex flex-wrap items-center gap-1.5">
               <div
