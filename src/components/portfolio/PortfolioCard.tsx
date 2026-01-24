@@ -96,7 +96,7 @@ export function PortfolioCard({
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') onOpenDetails();
         }}
-        className="rounded-xl border border-border bg-card shadow-card transition-shadow hover:shadow-card-hover cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="min-w-0 rounded-xl border border-border bg-card shadow-card transition-shadow hover:shadow-card-hover cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         {/* Header with color indicator */}
         <div
@@ -104,14 +104,14 @@ export function PortfolioCard({
           style={{ backgroundColor: portfolio.color }}
         />
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {/* Header */}
           <div className="mb-4 flex items-start justify-between">
-            <div>
-              <h3 className="font-semibold text-foreground">{portfolio.name}</h3>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-foreground truncate">{portfolio.name}</h3>
               {portfolio.description && (
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {portfolio.description}
+                  <span className="block truncate">{portfolio.description}</span>
                 </p>
               )}
               <p className="text-2xl font-bold text-foreground tabular-nums mt-1">
@@ -183,9 +183,9 @@ export function PortfolioCard({
 
           {/* Allocation Progress */}
           <div className="mb-4 space-y-2">
-            <div className="flex items-center justify-between text-sm">
+             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-muted-foreground">Peso no total</span>
-              <div className="flex items-center gap-2">
+               <div className="flex items-center gap-2 min-w-0">
                 <span className="tabular-nums font-medium text-foreground">
                   {portfolio.currentAllocation.toFixed(1)}%
                 </span>
@@ -206,7 +206,7 @@ export function PortfolioCard({
               return (
                 <>
                   <Progress value={achievementClamped} className="h-2" />
-                  <div className="flex items-center justify-between text-xs">
+                   <div className="flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">
                       Atingimento do alvo: {achievementClamped.toFixed(1)}%
                     </span>
@@ -221,9 +221,9 @@ export function PortfolioCard({
                           {allocationDiff.toFixed(1)}% abaixo do alvo
                         </span>
                       )}
-                      {!isOverAllocated && !isUnderAllocated && (
-                        <span className="text-success">No alvo</span>
-                      )}
+                       {!isOverAllocated && !isUnderAllocated && (
+                         <span className="text-success">No alvo</span>
+                       )}
                     </span>
                   </div>
                 </>
@@ -283,9 +283,9 @@ export function PortfolioCard({
                   (asset) => {
                     const isPositive = asset.priceChangePercent >= 0;
                     return (
-                      <div
+                       <div
                         key={asset.id}
-                        className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm group"
+                         className="flex flex-col gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between group"
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
@@ -309,7 +309,7 @@ export function PortfolioCard({
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                         <div className="flex items-center justify-between gap-2 sm:justify-end">
                           <div className="text-right">
                             <div className="tabular-nums font-medium text-foreground">
                               {formatCurrency(asset.currentValue)}
@@ -321,7 +321,7 @@ export function PortfolioCard({
                               {asset.gain >= 0 ? '+' : ''}{formatCurrency(asset.gain)}
                             </div>
                           </div>
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                           <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                             <Button
                               variant="ghost"
                               size="icon"
