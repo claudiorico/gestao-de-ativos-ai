@@ -169,36 +169,42 @@ export default function Dividends() {
           transition={{ delay: 0.1 }}
           className="grid gap-4 sm:grid-cols-3"
         >
-          <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10">
                 <Coins className="h-5 w-5 text-success" />
               </div>
               <span className="text-sm font-medium text-muted-foreground">Total ({currentYear})</span>
             </div>
-            <p className="text-3xl font-bold text-foreground tabular-nums">{formatCurrency(totalAnnual)}</p>
+            <p className="break-words text-2xl font-bold text-foreground tabular-nums sm:text-3xl">
+              {formatCurrency(totalAnnual)}
+            </p>
             <p className="mt-2 text-sm text-muted-foreground">Dividendos + JCP + rendimentos</p>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                 <Calendar className="h-5 w-5 text-primary" />
               </div>
               <span className="text-sm font-medium text-muted-foreground">Média mensal</span>
             </div>
-            <p className="text-3xl font-bold text-foreground tabular-nums">{formatCurrency(avgMonthly)}</p>
+            <p className="break-words text-2xl font-bold text-foreground tabular-nums sm:text-3xl">
+              {formatCurrency(avgMonthly)}
+            </p>
             <p className="mt-2 text-sm text-muted-foreground">No ano corrente</p>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
                 <TrendingUp className="h-5 w-5 text-warning" />
               </div>
               <span className="text-sm font-medium text-muted-foreground">Yield on Cost</span>
             </div>
-            <p className="text-3xl font-bold text-foreground tabular-nums">{yieldOnCost.toFixed(2)}%</p>
+            <p className="break-words text-2xl font-bold text-foreground tabular-nums sm:text-3xl">
+              {yieldOnCost.toFixed(2)}%
+            </p>
             <p className="mt-2 text-sm text-muted-foreground">Sobre o custo (preço médio)</p>
           </div>
         </motion.div>
@@ -287,21 +293,28 @@ export default function Dividends() {
             transition={{ delay: 0.3 }}
             className="rounded-xl border border-border bg-card p-6 shadow-card"
           >
-            <div className="mb-6 flex items-start justify-between gap-3">
+            <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start">
               <div>
                 <h3 className="text-lg font-semibold text-foreground">Últimos Recebidos</h3>
                 <p className="text-sm text-muted-foreground">Proventos mais recentes</p>
               </div>
-              <Button size="sm" variant="outline" onClick={() => navigate("/transactions/new")}
-                >Novo</Button
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => navigate("/transactions/new")}
               >
+                Novo
+              </Button>
             </div>
 
             {recentDividends.length === 0 ? (
               <div className="rounded-lg border border-border/50 p-4">
                 <p className="text-sm text-muted-foreground">Nenhum provento registrado ainda.</p>
                 <div className="mt-3">
-                  <Button onClick={() => navigate("/transactions/new")}>Cadastrar o primeiro</Button>
+                  <Button className="w-full sm:w-auto" onClick={() => navigate("/transactions/new")}>
+                    Cadastrar o primeiro
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -312,7 +325,7 @@ export default function Dividends() {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.4 + index * 0.05 }}
-                    className="flex items-center justify-between rounded-lg border border-border/50 p-3 transition-colors hover:bg-muted/20"
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border/50 p-3 transition-colors hover:bg-muted/20"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10 font-mono text-sm font-bold text-success shrink-0">
@@ -337,7 +350,7 @@ export default function Dividends() {
                         </p>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="shrink-0 text-right">
                       <p className="font-semibold text-success tabular-nums">+{formatCurrency(dividend.total)}</p>
                       <p className="text-xs text-muted-foreground">{formatDate(dividend.date)}</p>
                     </div>

@@ -51,14 +51,14 @@ export function MetricCard({
         variantStyles[variant]
       )}
     >
-      <div className="flex items-start justify-between">
-        <div className="space-y-3">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <p className="text-3xl font-bold tracking-tight text-foreground tabular-nums">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-3">
+          <p className="truncate text-sm font-medium text-muted-foreground">{title}</p>
+          <p className="break-words text-2xl font-bold tracking-tight text-foreground tabular-nums sm:text-3xl">
             {value}
           </p>
           {change !== undefined && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <div
                 className={cn(
                   "flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium",
@@ -78,7 +78,7 @@ export function MetricCard({
         </div>
         <div
           className={cn(
-            "flex h-12 w-12 items-center justify-center rounded-xl",
+            "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
             iconContainerStyles[variant]
           )}
         >

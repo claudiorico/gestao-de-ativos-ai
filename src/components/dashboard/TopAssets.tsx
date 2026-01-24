@@ -69,13 +69,13 @@ export function TopAssets({ assets, totalValue }: TopAssetsProps) {
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.3, delay: 0.7 + index * 0.1 }}
-              className="flex items-center justify-between rounded-lg border border-border/50 p-4 transition-colors hover:bg-muted/30"
+              className="flex flex-col gap-3 rounded-lg border border-border/50 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex items-center gap-4 min-w-0">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 font-mono text-sm font-bold text-primary">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-sm font-bold text-primary">
                   {asset.ticker.slice(0, 2)}
                 </div>
-                <div className="min-w-0 max-w-[140px] sm:max-w-[200px]">
+                <div className="min-w-0">
                   <p className="font-semibold text-foreground truncate">
                     {asset.name}
                   </p>
@@ -85,8 +85,8 @@ export function TopAssets({ assets, totalValue }: TopAssetsProps) {
                 </div>
               </div>
 
-              <div className="flex items-center gap-6">
-                <div className="text-right">
+              <div className="flex w-full items-start justify-between gap-4 sm:w-auto sm:items-center sm:justify-end sm:gap-6">
+                <div className="text-left sm:text-right">
                   <p className="font-semibold text-foreground tabular-nums">
                     {asset.allocation.toFixed(1)}%
                   </p>
@@ -95,7 +95,7 @@ export function TopAssets({ assets, totalValue }: TopAssetsProps) {
                   </p>
                 </div>
 
-                <div className="w-20">
+                <div className="w-24 sm:w-20">
                   <div className="mb-1 flex justify-between text-xs">
                     <span className="text-muted-foreground">Alocação</span>
                     <span className="font-medium text-foreground tabular-nums">
