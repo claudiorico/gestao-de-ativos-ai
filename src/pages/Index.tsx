@@ -150,7 +150,7 @@ const Index = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Page Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
@@ -166,7 +166,7 @@ const Index = () => {
         </motion.div>
 
         {/* Metrics Grid */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard
             title="Patrimônio Total"
             value={formatCurrency(metrics.totalValue)}
@@ -197,7 +197,7 @@ const Index = () => {
         {hasData && (
           <>
             {/* Charts */}
-            <div className="grid gap-6">
+            <div className="grid gap-4 sm:gap-6">
               <AllocationChart
                 data={allocationData}
                 totalValue={metrics.totalValue}
@@ -207,7 +207,7 @@ const Index = () => {
             </div>
 
             {/* Bottom Row */}
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
               <DividendsChart />
               <TopAssets assets={allAssets} totalValue={metrics.totalValue} />
             </div>

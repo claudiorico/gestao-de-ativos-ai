@@ -56,7 +56,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
         transition={{ duration: 0.4, delay: 0.3 }}
         className="rounded-xl border border-border bg-card p-6 shadow-card"
       >
-        <div className="mb-6">
+        <div className="mb-4 sm:mb-6">
           <h3 className="text-lg font-semibold text-foreground">
             Evolução Patrimonial
           </h3>
@@ -64,7 +64,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
             Histórico do patrimônio
           </p>
         </div>
-        <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+        <div className="flex items-center justify-center h-[240px] text-muted-foreground sm:h-[300px]">
           Nenhum dado disponível
         </div>
       </motion.div>
@@ -76,9 +76,9 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.3 }}
-      className="rounded-xl border border-border bg-card p-6 shadow-card"
+      className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
     >
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">
             Evolução Patrimonial
@@ -95,9 +95,9 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
         </div>
       </div>
 
-      <div className="h-[300px] w-full">
+      <div className="h-[240px] w-full sm:h-[300px]">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+          <AreaChart data={data} margin={{ top: 5, right: 0, left: -10, bottom: 5 }}>
             <defs>
               <linearGradient id="colorPatrimonio" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="hsl(152, 60%, 40%)" stopOpacity={0.3} />
@@ -120,7 +120,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
               tickLine={false}
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
               tickFormatter={formatCurrency}
-              width={80}
+              width={60}
             />
             <Tooltip
               contentStyle={{

@@ -89,7 +89,7 @@ export function DividendsChart() {
       transition={{ duration: 0.4, delay: 0.5 }}
       className="rounded-xl border border-border bg-card p-6 shadow-card"
     >
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 className="text-lg font-semibold text-foreground">
             Proventos Recebidos
@@ -116,9 +116,9 @@ export function DividendsChart() {
         </div>
       </div>
 
-      <div className="h-[220px] w-full">
+    <div className="h-[200px] w-full sm:h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+        <BarChart data={data} margin={{ top: 5, right: 0, left: -10, bottom: 5 }}>
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="hsl(var(--border))"
