@@ -51,9 +51,9 @@ export function AllocationChart({ data, totalValue, onSelectPortfolio }: Allocat
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.4 }}
-      className="rounded-xl border border-border bg-card p-6 shadow-card"
+      className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
     >
-      <div className="mb-6">
+      <div className="mb-4 sm:mb-6">
         <h3 className="text-lg font-semibold text-foreground">
           Alocação por Carteira
         </h3>
@@ -63,7 +63,7 @@ export function AllocationChart({ data, totalValue, onSelectPortfolio }: Allocat
       </div>
 
       <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-        <div className="mx-auto h-[220px] w-full max-w-[220px] sm:mx-0 sm:h-[260px] sm:max-w-[260px]">
+        <div className="mx-auto h-[200px] w-full max-w-[200px] sm:mx-0 sm:h-[240px] sm:max-w-[240px]">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
