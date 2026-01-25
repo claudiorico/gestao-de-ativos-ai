@@ -197,7 +197,7 @@ const Index = () => {
         {hasData && (
           <>
             {/* Charts */}
-            <div className="grid gap-4 sm:gap-6">
+            <div className="grid min-w-0 gap-4 sm:gap-6">
               <AllocationChart
                 data={allocationData}
                 totalValue={metrics.totalValue}
@@ -207,7 +207,7 @@ const Index = () => {
             </div>
 
             {/* Bottom Row */}
-            <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+            <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-2">
               <DividendsChart />
               <TopAssets assets={allAssets} totalValue={metrics.totalValue} />
             </div>

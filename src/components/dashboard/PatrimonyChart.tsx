@@ -54,7 +54,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.3 }}
-        className="rounded-xl border border-border bg-card p-6 shadow-card"
+        className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
       >
         <div className="mb-4 sm:mb-6">
           <h3 className="text-lg font-semibold text-foreground">
@@ -64,7 +64,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
             Histórico do patrimônio
           </p>
         </div>
-        <div className="flex items-center justify-center h-[240px] text-muted-foreground sm:h-[300px]">
+          <div className="flex min-w-0 items-center justify-center h-[240px] overflow-hidden text-muted-foreground sm:h-[300px]">
           Nenhum dado disponível
         </div>
       </motion.div>
@@ -76,7 +76,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.3 }}
-      className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
+      className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
     >
       <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -95,7 +95,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
         </div>
       </div>
 
-      <div className="h-[240px] w-full sm:h-[300px]">
+      <div className="h-[240px] min-w-0 w-full overflow-hidden sm:h-[300px]">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 5, right: 0, left: -10, bottom: 5 }}>
             <defs>
