@@ -28,7 +28,7 @@ export function TopAssets({ assets, totalValue }: TopAssetsProps) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.6 }}
-        className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
+        className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
       >
         <div className="mb-6">
           <h3 className="text-lg font-semibold text-foreground">
@@ -50,7 +50,7 @@ export function TopAssets({ assets, totalValue }: TopAssetsProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.6 }}
-      className="rounded-xl border border-border bg-card p-4 shadow-card"
+      className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card"
     >
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-foreground">

@@ -29,7 +29,7 @@ export function AllocationChart({ data, totalValue, onSelectPortfolio }: Allocat
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.4 }}
-        className="rounded-xl border border-border bg-card p-6 shadow-card"
+        className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
       >
         <div className="mb-6">
           <h3 className="text-lg font-semibold text-foreground">
@@ -51,7 +51,7 @@ export function AllocationChart({ data, totalValue, onSelectPortfolio }: Allocat
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.4 }}
-      className="rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
+      className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
     >
       <div className="mb-4 sm:mb-6">
         <h3 className="text-lg font-semibold text-foreground">

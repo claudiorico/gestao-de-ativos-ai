@@ -87,7 +87,7 @@ export function DividendsChart() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.5 }}
-      className="rounded-xl border border-border bg-card p-6 shadow-card"
+      className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card sm:p-6"
     >
     <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -116,7 +116,7 @@ export function DividendsChart() {
         </div>
       </div>
 
-    <div className="h-[200px] w-full sm:h-[220px]">
+    <div className="h-[200px] min-w-0 w-full overflow-hidden sm:h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 5, right: 0, left: -10, bottom: 5 }}>
             <CartesianGrid
