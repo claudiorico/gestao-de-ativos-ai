@@ -1,9 +1,9 @@
-import { Bell, Search, Sun, Moon, User, Lock, Cloud, HardDrive, LogOut } from "lucide-react";
+import { Bell, Sun, Moon, User, Lock, Cloud, HardDrive, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { SearchCommand } from "./SearchCommand";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,14 +57,7 @@ export function Header() {
       {/* Search */}
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <SidebarTrigger className="shrink-0" />
-        <div className="relative hidden w-full max-w-[20rem] lg:block lg:max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Buscar ativos, carteiras..."
-            className="h-10 w-full border-0 bg-muted/50 pl-10 pr-4 text-sm focus-visible:ring-1 focus-visible:ring-primary"
-          />
-        </div>
+        <SearchCommand />
         <div className="hidden shrink-0 lg:block">
           <PrivacyBadge />
         </div>
