@@ -4,6 +4,7 @@ import { PatrimonyChart } from "@/components/dashboard/PatrimonyChart";
 import { AllocationChart } from "@/components/dashboard/AllocationChart";
 import { DividendsChart } from "@/components/dashboard/DividendsChart";
 import { TopAssets } from "@/components/dashboard/TopAssets";
+import { AssetsGainsTable } from "@/components/dashboard/AssetsGainsTable";
 import { motion } from "framer-motion";
 import { Wallet, TrendingUp, PiggyBank, Loader2 } from "lucide-react";
 import { usePortfolios } from "@/hooks/usePortfolios";
@@ -211,6 +212,9 @@ const Index = () => {
               <DividendsChart />
               <TopAssets assets={allAssets} totalValue={metrics.totalValue} />
             </div>
+
+            {/* Assets Gains Table */}
+            <AssetsGainsTable portfolios={portfoliosWithAssets} />
           </>
         )}
 
