@@ -140,7 +140,7 @@ export function DividendsChart() {
                   maximumFractionDigits: 0,
                 }).format(value)
               }
-              width={50}
+              width={60}
             />
             <Tooltip
               contentStyle={{
