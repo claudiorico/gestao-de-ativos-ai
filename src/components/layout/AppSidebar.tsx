@@ -39,16 +39,6 @@ export function AppSidebar() {
   const { setOpen, open, isMobile } = useSidebar();
   const location = useLocation();
 
-  // Auto-collapse on mobile/tablet on mount
-  useEffect(() => {
-    const width = window.innerWidth;
-    if (width < 1024) {
-      setOpen(false);
-    } else {
-      setOpen(true);
-    }
-  }, [setOpen]);
-
   // Close sidebar on route change in mobile
   useEffect(() => {
     if (isMobile) {
