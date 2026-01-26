@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -23,7 +23,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -37,18 +36,18 @@ const menuItems = [
 ];
 
 export function AppSidebar() {
-  const { setOpen, open } = useSidebar();
+  const { setOpen, open, isMobile } = useSidebar();
   const location = useLocation();
-  const isMobile = useIsMobile();
 
-  // Auto-collapse on mobile
+  // Auto-collapse on mobile/tablet on mount
   useEffect(() => {
-    if (isMobile) {
+    const width = window.innerWidth;
+    if (width < 1024) {
       setOpen(false);
     } else {
       setOpen(true);
     }
-  }, [isMobile, setOpen]);
+  }, [setOpen]);
 
   // Close sidebar on route change in mobile
   useEffect(() => {

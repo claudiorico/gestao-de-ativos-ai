@@ -8,8 +8,10 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={isDesktop}>
       <div className="flex h-screen w-full overflow-hidden bg-background">
         <AppSidebar />
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
