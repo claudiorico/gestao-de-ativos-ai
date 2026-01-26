@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,6 +56,7 @@ export function Header() {
     <header className="flex flex-col gap-3 border-b border-border bg-card px-4 py-3 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:px-6">
       {/* Search */}
       <div className="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
+        <SidebarTrigger className="-ml-1" />
         <div className="relative w-full sm:w-[28rem]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
