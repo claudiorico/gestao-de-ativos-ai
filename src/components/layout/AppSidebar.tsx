@@ -84,8 +84,8 @@ export function AppSidebar() {
                 
                 return (
                   <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
-                      <NavLink to={item.url} end onClick={handleNavClick}>
+                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.title} onClick={handleNavClick}>
+                      <NavLink to={item.url} end>
                         <Icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </NavLink>
