@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useMemo } from "react";
 import { AppSidebar } from "./AppSidebar";
 import { Header } from "./Header";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -8,10 +8,27 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+  const defaultOpen = useMemo(() => {
+    if (typeof window === "undefined") return true;
+
+    // Prefer persisted cookie state (set by SidebarProvider) over viewport heuristics.
+    const cookie = document.cookie
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("sidebar:state="));
+
+    if (cookie) {
+      const value = cookie.split("=")[1];
+      if (value === "true") return true;
+      if (value === "false") return false;
+    }
+
+    // Fallback: open by default on desktop widths.
+    return window.innerWidth >= 1024;
+  }, []);
 
   return (
-    <SidebarProvider defaultOpen={isDesktop}>
+    <SidebarProvider defaultOpen={defaultOpen}>
       <div className="flex h-screen w-full overflow-hidden bg-background">
         <AppSidebar />
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
