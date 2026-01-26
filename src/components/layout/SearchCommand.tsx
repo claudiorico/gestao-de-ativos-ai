@@ -2,33 +2,27 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, Briefcase, TrendingUp } from "lucide-react";
 import {
-  CommandDialog,
+  Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { usePortfolios } from "@/hooks/usePortfolios";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 
 export function SearchCommand() {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { portfoliosWithAssets } = usePortfolios();
   const { isUnlocked } = useSecureStorage();
-
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setOpen((open) => !open);
-      }
-    };
-
-    document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
-  }, []);
 
   const searchItems = useMemo(() => {
     if (!isUnlocked) return { portfolios: [], assets: [] };
@@ -55,6 +49,7 @@ export function SearchCommand() {
 
   const handleSelect = (type: "portfolio" | "asset", id: string, portfolioId?: string) => {
     setOpen(false);
+    setSearch("");
     if (type === "portfolio") {
       navigate(`/portfolio/${id}`);
     } else if (type === "asset" && portfolioId) {
@@ -63,49 +58,64 @@ export function SearchCommand() {
   };
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="relative hidden w-full max-w-[20rem] lg:block lg:max-w-md"
-      >
-        <div className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted">
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <div className="relative hidden w-full max-w-[20rem] cursor-pointer lg:block lg:max-w-md">
+          <div className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/50">
           <Search className="h-4 w-4 shrink-0" />
           <span className="flex-1 text-left">Buscar ativos, carteiras...</span>
           <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-background px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
             <span className="text-xs">⌘</span>K
           </kbd>
+          </div>
         </div>
-      </button>
+      </PopoverTrigger>
+      <PopoverContent 
+        className="w-[var(--radix-popover-trigger-width)] p-0 z-50" 
+        align="start"
+        sideOffset={4}
+      >
+        <Command shouldFilter={false}>
+          <CommandInput 
+            placeholder="Digite para buscar..." 
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList>
+            <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
 
-      <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Digite para buscar ativos ou carteiras..." />
-        <CommandList>
-          <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
-          
-          {searchItems.portfolios.length > 0 && (
-            <CommandGroup heading="Carteiras">
-              {searchItems.portfolios.map((portfolio) => (
+            {searchItems.portfolios.length > 0 && search && (
+              <CommandGroup heading="Carteiras">
+                {searchItems.portfolios
+                  .filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+                  .map((portfolio) => (
                 <CommandItem
                   key={portfolio.id}
                   value={portfolio.name}
                   onSelect={() => handleSelect("portfolio", portfolio.id)}
-                  className="flex items-center gap-2"
+                  className="flex cursor-pointer items-center gap-2"
                 >
                   <Briefcase className="h-4 w-4 text-muted-foreground" />
                   <span>{portfolio.name}</span>
                 </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
+                  ))}
+              </CommandGroup>
+            )}
 
-          {searchItems.assets.length > 0 && (
-            <CommandGroup heading="Ativos">
-              {searchItems.assets.map((asset) => (
+            {searchItems.assets.length > 0 && search && (
+              <CommandGroup heading="Ativos">
+                {searchItems.assets
+                  .filter(a => 
+                    a.ticker.toLowerCase().includes(search.toLowerCase()) ||
+                    a.name.toLowerCase().includes(search.toLowerCase())
+                  )
+                  .slice(0, 8)
+                  .map((asset) => (
                 <CommandItem
                   key={asset.id}
                   value={`${asset.ticker} ${asset.name} ${asset.portfolioName}`}
                   onSelect={() => handleSelect("asset", asset.id, asset.portfolioId)}
-                  className="flex items-center gap-2"
+                  className="flex cursor-pointer items-center gap-2"
                 >
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                   <div className="flex flex-1 flex-col">
@@ -118,11 +128,12 @@ export function SearchCommand() {
                     </span>
                   </div>
                 </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
-        </CommandList>
-      </CommandDialog>
-    </>
+                  ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
