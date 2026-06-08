@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, ArrowRightLeft } from "lucide-react";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
+import { MoveAssetDialog, type MoveAssetTarget } from "@/components/portfolio/MoveAssetDialog";
 import {
   Table,
   TableBody,
@@ -34,6 +35,7 @@ export default function PortfolioDetailPage() {
 
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [isDividendsLoading, setIsDividendsLoading] = useState(false);
+  const [assetToMove, setAssetToMove] = useState<MoveAssetTarget | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -227,6 +229,7 @@ export default function PortfolioDetailPage() {
                       <TableHead className="text-right">Proventos</TableHead>
                       <TableHead className="text-right">Ganho total (c/ prov.)</TableHead>
                       <TableHead className="text-right">Ganho dia</TableHead>
+                      <TableHead className="w-10" aria-label="Ações" />
                     </TableRow>
                   </TableHeader>
                   <TableBody className="[&>tr:nth-child(odd)]:bg-muted/20 [&>tr:nth-child(even)]:bg-muted/35 dark:[&>tr:nth-child(odd)]:bg-muted/10 dark:[&>tr:nth-child(even)]:bg-muted/20">
@@ -306,6 +309,25 @@ export default function PortfolioDetailPage() {
                                 {formatPercent(dayGainPct)}
                               </div>
                             </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Mover para outra carteira"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAssetToMove({
+                                    id: a.id,
+                                    name: a.name,
+                                    ticker: a.ticker,
+                                    portfolioId: portfolio.id,
+                                  });
+                                }}
+                              >
+                                <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -316,6 +338,13 @@ export default function PortfolioDetailPage() {
           </>
         )}
       </div>
+
+      <MoveAssetDialog
+        open={!!assetToMove}
+        onOpenChange={(o) => !o && setAssetToMove(null)}
+        asset={assetToMove}
+        portfolios={portfoliosWithAssets.map((p) => ({ id: p.id, name: p.name }))}
+      />
     </DashboardLayout>
   );
 }
