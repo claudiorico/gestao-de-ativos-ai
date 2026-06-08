@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Upload, X, FileSpreadsheet } from "lucide-react";
+import { Upload, X, FileSpreadsheet, Download, HelpCircle, Copy } from "lucide-react";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 
@@ -12,6 +12,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
@@ -72,6 +80,68 @@ function extractTicker(productName: string): string {
   const match = productName.match(/^([A-Z0-9]+)/);
   return match ? match[1] : productName.slice(0, 10);
 }
+
+function downloadText(filename: string, text: string) {
+  // BOM para o Excel abrir os acentos corretamente.
+  const blob = new Blob(["﻿" + text], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Modelos de exemplo (1ª linha = cabeçalho que o importador reconhece).
+const TEMPLATE_NEGOCIACAO = [
+  "Data do Negócio;Tipo de Movimentação;Mercado;Prazo/Vencimento;Instituição;Código de Negociação;Quantidade;Preço;Valor",
+  "02/01/2024;Compra;Mercado à Vista;;CORRETORA;PETR4;100;38,50;3850,00",
+  "15/02/2024;Venda;Mercado à Vista;;CORRETORA;PETR4;50;40,00;2000,00",
+  "10/03/2024;Compra;Mercado à Vista;;CORRETORA;HGLG11;30;160,00;4800,00",
+].join("\n");
+
+const TEMPLATE_MOVIMENTACAO = [
+  "Entrada/Saída;Data;Movimentação;Produto;Instituição;Quantidade;Preço unitário;Valor da Operação",
+  "Credito;20/01/2024;Dividendo;PETR4;CORRETORA;100;0,50;50,00",
+  "Credito;20/02/2024;Rendimento;HGLG11;CORRETORA;30;0,90;27,00",
+  "Credito;15/03/2024;Juros Sobre Capital Próprio;ITSA4;CORRETORA;200;0,12;24,00",
+].join("\n");
+
+const TEMPLATE_FUNDOS = [
+  "ativo;classe;date;evento;quantidade;preco;valor;observacao",
+  "CVM:00000000000191;FUNDO;10/01/2024;C;1000;1,05;1050,00;Nome do Fundo de Investimento",
+  "TD:IPCA2035;RFIXA;12/01/2024;C;1,5;3200,00;4800,00;Tesouro IPCA+ 2035",
+].join("\n");
+
+// Guia para quem tem planilha própria: especificação dos formatos para colar num LLM.
+const PROMPT_PLANILHA = `Tenho uma planilha com minhas operações de investimento e quero convertê-la em
+arquivos CSV de importação. Gere os CSVs abaixo (delimitador ";", datas dd/mm/aaaa,
+decimais com vírgula, valores sempre positivos — o tipo/lado indica compra ou venda).
+A 1ª linha de cada arquivo deve ser EXATAMENTE o cabeçalho indicado.
+
+1) NEGOCIAÇÃO (compra/venda de ações, FIIs, ETFs). Cabeçalho:
+Data do Negócio;Tipo de Movimentação;Mercado;Prazo/Vencimento;Instituição;Código de Negociação;Quantidade;Preço;Valor
+- Tipo de Movimentação = "Compra" ou "Venda"
+- Mercado = "Mercado à Vista"; Código de Negociação = o ticker (ex.: PETR4, HGLG11)
+- Valor = Quantidade × Preço
+
+2) MOVIMENTAÇÃO (proventos). Cabeçalho:
+Entrada/Saída;Data;Movimentação;Produto;Instituição;Quantidade;Preço unitário;Valor da Operação
+- Entrada/Saída = "Credito"
+- Movimentação = "Rendimento" | "Dividendo" | "Juros Sobre Capital Próprio" | "Reembolso"
+- Produto = ticker; Valor da Operação = valor recebido
+
+3) FUNDOS/TESOURO (fundos por CNPJ e Tesouro Direto). Cabeçalho:
+ativo;classe;date;evento;quantidade;preco;valor;observacao
+- ativo = "CVM:<cnpj 14 dígitos>" para fundos, ou "TD:<nome>" para Tesouro
+- classe = "FUNDO" ou "RFIXA"; evento = "C" (compra) ou "V" (venda)
+- observacao = nome do ativo
+
+Eventos corporativos (desdobramento, bonificação, subscrição, IPO): trate como linhas de
+NEGOCIAÇÃO ("Compra" com a quantidade recebida; Valor 0 quando não houve desembolso).
+Não invente dados; se faltar um campo, deixe 0,00. Entregue cada CSV num bloco separado.`;
 
 interface B3ImportTabProps {
   onImportComplete: () => void;
@@ -870,6 +940,82 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
                 </span>
               </Button>
             </label>
+          </div>
+
+          {/* Ajuda: modelos para baixar + guia para planilha própria */}
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">Não sabe o formato? Baixe um modelo</p>
+              <p className="text-xs text-muted-foreground">
+                Relatórios oficiais da B3 (Negociação e Movimentação) já importam direto. Os modelos
+                abaixo mostram as colunas esperadas.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => downloadText("modelo_negociacao.csv", TEMPLATE_NEGOCIACAO)}
+              >
+                <Download className="h-4 w-4" />
+                Negociação
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => downloadText("modelo_movimentacao.csv", TEMPLATE_MOVIMENTACAO)}
+              >
+                <Download className="h-4 w-4" />
+                Movimentação
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => downloadText("modelo_fundos_tesouro.csv", TEMPLATE_FUNDOS)}
+              >
+                <Download className="h-4 w-4" />
+                Fundos/Tesouro
+              </Button>
+            </div>
+
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-2 px-0 text-primary hover:bg-transparent">
+                  <HelpCircle className="h-4 w-4" />
+                  Tenho uma planilha própria
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Converter sua planilha</DialogTitle>
+                  <DialogDescription>
+                    Copie o texto abaixo e cole num assistente de IA (ChatGPT, Claude, etc.) junto
+                    com os dados da sua planilha. Ele gera os CSVs no formato que o app importa.
+                  </DialogDescription>
+                </DialogHeader>
+                <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-muted/50 p-3 text-xs whitespace-pre-wrap">
+                  {PROMPT_PLANILHA}
+                </pre>
+                <Button
+                  className="gap-2"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(PROMPT_PLANILHA);
+                      toast({ title: "Guia copiado para a área de transferência" });
+                    } catch {
+                      toast({ title: "Não foi possível copiar", variant: "destructive" });
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                  Copiar guia
+                </Button>
+              </DialogContent>
+            </Dialog>
           </div>
         </>
       ) : (
