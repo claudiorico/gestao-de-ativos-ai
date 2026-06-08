@@ -32,6 +32,8 @@ export function useAutoSync() {
     // (usuário reconectou o Drive), destrava e segue normalmente.
     if (needsUserActionRef.current && hasValidGoogleToken()) {
       needsUserActionRef.current = false;
+      updateSyncStatus({ needsReauth: false });
+      window.dispatchEvent(new Event('gdrive-sync-status-changed'));
     }
 
     if (
@@ -86,13 +88,17 @@ export function useAutoSync() {
       updateSyncStatus({
         lastSyncAt: Date.now(),
         provider: 'google_drive',
+        needsReauth: false,
       });
+      window.dispatchEvent(new Event('gdrive-sync-status-changed'));
 
       console.log('[AutoSync] Backup completed successfully');
     } catch (error) {
       // Caso clássico: o navegador bloqueou popup / precisa consentimento → só resolve com clique do usuário.
       if (error instanceof GoogleAuthInteractionRequiredError) {
         needsUserActionRef.current = true;
+        updateSyncStatus({ needsReauth: true });
+        window.dispatchEvent(new Event('gdrive-sync-status-changed'));
 
         const now = Date.now();
         if (now - lastNeedActionToastAtRef.current > 30_000) {

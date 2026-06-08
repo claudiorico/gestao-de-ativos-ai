@@ -34,6 +34,12 @@ export interface SyncStatus {
    * This prevents repeated toasts on every change before the first manual confirmation/upload.
    */
   existingBackupWarningShown: boolean;
+
+  /**
+   * True quando a sessão do Google expirou e o backup automático está pausado
+   * aguardando o usuário reconectar (clique). Usado para um indicador persistente na UI.
+   */
+  needsReauth: boolean;
 }
 
 // Generate a unique device ID for this browser instance
@@ -133,6 +139,7 @@ export function getSyncStatus(): SyncStatus {
     autoSyncEnabled: false,
     fileName: null,
     existingBackupWarningShown: false,
+    needsReauth: false,
   };
 
   const stored = localStorage.getItem(SYNC_STATUS_KEY);
@@ -148,6 +155,7 @@ export function getSyncStatus(): SyncStatus {
       autoSyncEnabled: Boolean(parsed.autoSyncEnabled),
       fileName: typeof parsed.fileName === "string" ? parsed.fileName : null,
       existingBackupWarningShown: Boolean(parsed.existingBackupWarningShown),
+      needsReauth: Boolean(parsed.needsReauth),
     };
   } catch {
     return defaults;

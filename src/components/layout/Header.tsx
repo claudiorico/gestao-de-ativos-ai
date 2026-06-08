@@ -1,4 +1,4 @@
-import { Bell, Sun, Moon, User, Lock, Cloud, HardDrive, LogOut } from "lucide-react";
+import { Bell, Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import { getSyncStatus } from "@/lib/backup";
 export function Header() {
   const [isDark, setIsDark] = useState(false);
   const [syncConnected, setSyncConnected] = useState(false);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const { lockVault } = useSecureStorage();
   const { user, isAuthenticated, logout } = useAuthUser();
 
@@ -42,7 +43,13 @@ export function Header() {
   };
 
   useEffect(() => {
-    setSyncConnected(isGoogleDriveConnected());
+    const refresh = () => {
+      setSyncConnected(isGoogleDriveConnected());
+      setNeedsReauth(getSyncStatus().needsReauth);
+    };
+    refresh();
+    window.addEventListener("gdrive-sync-status-changed", refresh);
+    return () => window.removeEventListener("gdrive-sync-status-changed", refresh);
   }, []);
 
   const toggleTheme = () => {
@@ -74,16 +81,26 @@ export function Header() {
                   variant="ghost"
                   size="icon"
                   className="relative h-9 w-9 rounded-lg"
-                  title={syncConnected ? "Google Drive conectado" : "Backup & Sync"}
+                  title={
+                    needsReauth
+                      ? "Backup pausado — sessão do Google expirou. Clique para reconectar"
+                      : syncConnected
+                      ? "Google Drive conectado"
+                      : "Backup & Sync"
+                  }
                 >
-                  {syncConnected ? (
+                  {needsReauth ? (
+                    <CloudOff className="h-4 w-4 text-warning" />
+                  ) : syncConnected ? (
                     <Cloud className="h-4 w-4 text-success" />
                   ) : (
                     <HardDrive className="h-4 w-4 text-muted-foreground" />
                   )}
-                  {syncStatus.autoSyncEnabled && syncConnected && (
+                  {needsReauth ? (
+                    <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-warning animate-pulse" />
+                  ) : syncStatus.autoSyncEnabled && syncConnected ? (
                     <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-success animate-pulse" />
-                  )}
+                  ) : null}
                 </Button>
               </motion.div>
             }

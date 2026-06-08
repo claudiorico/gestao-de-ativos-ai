@@ -155,6 +155,10 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
       setShowClientIdInput(false);
       setIsConnected(true);
 
+      // Reconectou → limpa o aviso de "backup pausado" e avisa a UI.
+      updateSyncStatus({ needsReauth: false });
+      window.dispatchEvent(new Event("gdrive-sync-status-changed"));
+
       toast({
         title: 'Google Drive conectado',
         description: 'Sync automático ativado',
