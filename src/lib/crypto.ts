@@ -9,6 +9,20 @@ const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 
 /**
+ * Converte bytes para base64 em blocos. Usar `String.fromCharCode(...bytes)` direto
+ * estoura a pilha ("Maximum call stack size exceeded") quando o array é grande
+ * (ex.: blob criptografado de uma importação em massa).
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000; // 32KB por bloco
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
  * Derives an encryption key from user password using PBKDF2
  */
 export async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
@@ -53,7 +67,7 @@ export async function encrypt(data: string, key: CryptoKey): Promise<string> {
   combined.set(iv);
   combined.set(new Uint8Array(encryptedData), iv.length);
 
-  return btoa(String.fromCharCode(...combined));
+  return bytesToBase64(combined);
 }
 
 /**
@@ -87,7 +101,7 @@ export function generateSalt(): Uint8Array {
  * Converts Uint8Array to base64 for storage
  */
 export function saltToBase64(salt: Uint8Array): string {
-  return btoa(String.fromCharCode(...salt));
+  return bytesToBase64(salt);
 }
 
 /**
