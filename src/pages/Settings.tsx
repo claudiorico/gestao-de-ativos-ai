@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { motion } from "framer-motion";
-import { User, Bell, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle } from "lucide-react";
+import { User, Bell, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle, Tag } from "lucide-react";
+import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -90,6 +91,7 @@ export default function Settings() {
     saveSettings,
     getAssets,
     saveAsset,
+    saveAssetsBulk,
     notifyDataChange,
   } = useSecureStorage();
   const { user } = useAuthUser();
@@ -143,6 +145,7 @@ export default function Settings() {
   const [savedSettings, setSavedSettings] = useState(buildDefaultSettings);
   const [isSettingsReady, setIsSettingsReady] = useState(false);
   const [isStandardizingTickers, setIsStandardizingTickers] = useState(false);
+  const [isBackfillingNames, setIsBackfillingNames] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -586,6 +589,68 @@ export default function Settings() {
     }
   };
 
+  // Busca os nomes reais dos ativos (via get-quotes) para os que ficaram só com o ticker
+  // — caso típico de importação da B3 (o relatório de Negociação não traz o nome).
+  const handleBackfillAssetNames = async () => {
+    setIsBackfillingNames(true);
+    try {
+      const assets = await getAssets();
+      const candidates = assets.filter((a) => {
+        const n = (a.name || "").trim().toUpperCase();
+        const t = (a.ticker || "").trim().toUpperCase();
+        return !n || n === t;
+      });
+
+      if (candidates.length === 0) {
+        toast({ title: "Nada a atualizar", description: "Todos os ativos já têm nome." });
+        return;
+      }
+
+      const BATCH = 15;
+      const nameByTicker = new Map<string, string>();
+      for (let i = 0; i < candidates.length; i += BATCH) {
+        const tickers = candidates.slice(i, i + BATCH).map((a) => a.ticker.toUpperCase());
+        try {
+          const { data } = await invokeBackendFunction<{
+            quotes?: Array<{ ticker?: string; name?: string }>;
+          }>("get-quotes", { body: { tickers } });
+
+          for (const q of data?.quotes ?? []) {
+            const key = String(q.ticker ?? "").toUpperCase();
+            const nm = (q.name ?? "").trim();
+            if (key && nm && nm.toUpperCase() !== key) nameByTicker.set(key, nm);
+          }
+        } catch (e) {
+          console.warn("[Settings] backfill nomes: lote falhou", e);
+        }
+      }
+
+      const updated: typeof candidates = [];
+      for (const a of candidates) {
+        const nm = nameByTicker.get(a.ticker.toUpperCase());
+        if (nm) updated.push({ ...a, name: nm, updatedAt: Date.now() });
+      }
+
+      if (updated.length) {
+        await saveAssetsBulk(updated);
+      } else {
+        notifyDataChange();
+      }
+
+      toast({
+        title: updated.length ? "Nomes atualizados" : "Nenhum nome encontrado",
+        description: updated.length
+          ? `${updated.length} ativo(s) atualizado(s).`
+          : "Não encontrei nomes para os ativos pendentes (cripto/Tesouro podem não ter nome na fonte).",
+      });
+    } catch (e) {
+      console.error("[Settings] handleBackfillAssetNames failed", e);
+      toast({ title: "Falha ao atualizar nomes", variant: "destructive" });
+    } finally {
+      setIsBackfillingNames(false);
+    }
+  };
+
   const renderDataSection = () => (
     <div className="space-y-6">
       {/* Google Drive Section */}
@@ -830,6 +895,25 @@ export default function Settings() {
               <RefreshCw className="h-4 w-4" />
             )}
             Padronizar tickers existentes
+          </Button>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            Busca o nome dos ativos que ficaram só com o código (ex.: importação da B3).
+          </p>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleBackfillAssetNames}
+            disabled={isBackfillingNames || isLoading}
+          >
+            {isBackfillingNames ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Tag className="h-4 w-4" />
+            )}
+            Atualizar nomes dos ativos
           </Button>
         </div>
       </div>
