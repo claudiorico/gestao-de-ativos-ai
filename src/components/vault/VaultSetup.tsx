@@ -8,9 +8,12 @@ import { motion } from 'framer-motion';
 import { Shield, Eye, EyeOff, Lock, AlertTriangle, HardDrive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useSecureStorage } from '@/contexts/SecureStorageContext';
+import { useAuthUser } from '@/contexts/GoogleUserContext';
 import { toast } from '@/hooks/use-toast';
 import { isPersistentStorageEnabled, requestPersistentStorage } from '@/lib/indexeddb';
+import { isBiometricSupported, enrollBiometric } from '@/lib/biometric-unlock';
 
 interface VaultSetupProps {
   onComplete: () => void;
@@ -18,6 +21,9 @@ interface VaultSetupProps {
 
 export function VaultSetup({ onComplete }: VaultSetupProps) {
   const { initializeVault, isLoading } = useSecureStorage();
+  const { user } = useAuthUser();
+  const namespace = user?.uid || 'default';
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -26,8 +32,12 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [persistBusy, setPersistBusy] = useState(false);
 
+  const [bioSupported, setBioSupported] = useState(false);
+  const [enrollBio, setEnrollBio] = useState(false);
+
   useEffect(() => {
     isPersistentStorageEnabled().then(setPersisted).catch(() => setPersisted(null));
+    isBiometricSupported().then(setBioSupported).catch(() => setBioSupported(false));
   }, []);
 
   const validatePassword = (pwd: string): string | null => {
@@ -54,6 +64,19 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
 
     try {
       await initializeVault(password);
+
+      if (enrollBio && bioSupported) {
+        try {
+          await enrollBiometric(namespace, password);
+          toast({ title: 'Windows Hello ativado', description: 'Você poderá desbloquear pela biometria neste dispositivo.' });
+        } catch (err) {
+          const msg = err instanceof Error && err.message === 'PRF_UNSUPPORTED'
+            ? 'Seu navegador não suporta a biometria para isso (precisa de Chrome/Edge atualizado).'
+            : 'Não foi possível ativar a biometria agora; você pode ativar depois ao desbloquear.';
+          toast({ title: 'Biometria não ativada', description: msg, variant: 'destructive' });
+        }
+      }
+
       onComplete();
     } catch (err) {
       setError('Erro ao criar cofre seguro');
@@ -202,6 +225,21 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
                 </Button>
               </div>
             </div>
+
+            {/* Ativar Windows Hello */}
+            {bioSupported && (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox
+                  checked={enrollBio}
+                  onCheckedChange={(v) => setEnrollBio(Boolean(v))}
+                  className="mt-0.5"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Ativar <strong>Windows Hello</strong> neste dispositivo para desbloquear pela
+                  biometria (a senha continua válida como recuperação).
+                </span>
+              </label>
+            )}
 
             {/* Submit Button */}
             <Button type="submit" className="w-full h-12" disabled={isLoading}>

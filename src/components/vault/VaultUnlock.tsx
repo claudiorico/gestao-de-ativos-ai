@@ -5,12 +5,21 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Lock, Eye, EyeOff, AlertTriangle, Trash2, HardDrive } from 'lucide-react';
+import { Lock, Eye, EyeOff, AlertTriangle, Trash2, HardDrive, Fingerprint } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useSecureStorage } from '@/contexts/SecureStorageContext';
+import { useAuthUser } from '@/contexts/GoogleUserContext';
 import { toast } from '@/hooks/use-toast';
 import { isPersistentStorageEnabled, requestPersistentStorage } from '@/lib/indexeddb';
+import {
+  isBiometricSupported,
+  hasBiometricEnrolled,
+  enrollBiometric,
+  unlockWithBiometric,
+  disableBiometric,
+} from '@/lib/biometric-unlock';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +39,9 @@ interface VaultUnlockProps {
 
 export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
   const { unlockVault, wipeAllData, error } = useSecureStorage();
+  const { user } = useAuthUser();
+  const namespace = user?.uid || 'default';
+
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [attempts, setAttempts] = useState(0);
@@ -38,19 +50,47 @@ export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [persistBusy, setPersistBusy] = useState(false);
 
+  // Windows Hello / biometria
+  const [bioSupported, setBioSupported] = useState(false);
+  const [bioEnrolled, setBioEnrolled] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+  const [enrollAfterUnlock, setEnrollAfterUnlock] = useState(false);
+
   useEffect(() => {
     isPersistentStorageEnabled().then(setPersisted).catch(() => setPersisted(null));
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    isBiometricSupported().then((ok) => active && setBioSupported(ok)).catch(() => {});
+    setBioEnrolled(hasBiometricEnrolled(namespace));
+    return () => {
+      active = false;
+    };
+  }, [namespace]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (isSubmitting || !password) return;
-    
+
     setIsSubmitting(true);
     try {
       const success = await unlockVault(password);
       if (success) {
+        // Cadastra a biometria se o usuário marcou (temos a senha correta em mãos agora).
+        if (enrollAfterUnlock && bioSupported && !bioEnrolled) {
+          try {
+            await enrollBiometric(namespace, password);
+            setBioEnrolled(true);
+            toast({ title: 'Windows Hello ativado', description: 'Você poderá desbloquear pela biometria neste dispositivo.' });
+          } catch (err) {
+            const msg = err instanceof Error && err.message === 'PRF_UNSUPPORTED'
+              ? 'Seu navegador não suporta a biometria para isso (precisa de Chrome/Edge atualizado).'
+              : 'Não foi possível ativar a biometria.';
+            toast({ title: 'Biometria não ativada', description: msg, variant: 'destructive' });
+          }
+        }
         onUnlock();
       } else {
         setAttempts((prev) => prev + 1);
@@ -59,6 +99,44 @@ export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleBiometricUnlock = async () => {
+    if (bioBusy) return;
+    setBioBusy(true);
+    try {
+      const pwd = await unlockWithBiometric(namespace);
+      if (!pwd) {
+        toast({ title: 'Biometria não cadastrada', variant: 'destructive' });
+        return;
+      }
+      const success = await unlockVault(pwd);
+      if (success) {
+        onUnlock();
+      } else {
+        // A senha mudou desde o cadastro: invalida a biometria.
+        disableBiometric(namespace);
+        setBioEnrolled(false);
+        toast({
+          title: 'Biometria desatualizada',
+          description: 'A senha do cofre mudou. Entre com a senha e ative o Windows Hello novamente.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error && err.message === 'PRF_UNSUPPORTED'
+        ? 'Seu navegador não suporta a biometria para isso.'
+        : 'Autenticação cancelada ou falhou.';
+      toast({ title: 'Não foi possível usar a biometria', description: msg, variant: 'destructive' });
+    } finally {
+      setBioBusy(false);
+    }
+  };
+
+  const handleDisableBiometric = () => {
+    disableBiometric(namespace);
+    setBioEnrolled(false);
+    toast({ title: 'Windows Hello removido deste dispositivo' });
   };
 
   const handleReset = async () => {
@@ -138,7 +216,53 @@ export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
             <Button type="submit" className="w-full h-12" disabled={isSubmitting || !password}>
               {isSubmitting ? 'Desbloqueando...' : 'Desbloquear'}
             </Button>
+
+            {/* Ativar Windows Hello (quando suportado e ainda não cadastrado) */}
+            {bioSupported && !bioEnrolled && (
+              <label className="flex items-start gap-2 pt-1 cursor-pointer">
+                <Checkbox
+                  checked={enrollAfterUnlock}
+                  onCheckedChange={(v) => setEnrollAfterUnlock(Boolean(v))}
+                  className="mt-0.5"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Ativar <strong>Windows Hello</strong> neste dispositivo ao desbloquear (usa sua
+                  biometria; a senha continua válida).
+                </span>
+              </label>
+            )}
           </form>
+
+          {/* Entrar com Windows Hello (quando já cadastrado) */}
+          {bioSupported && bioEnrolled && (
+            <div className="mt-4">
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-card px-2 text-xs text-muted-foreground">ou</span>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-12 gap-2"
+                onClick={handleBiometricUnlock}
+                disabled={bioBusy}
+              >
+                <Fingerprint className="h-5 w-5" />
+                {bioBusy ? 'Aguardando biometria...' : 'Entrar com Windows Hello'}
+              </Button>
+              <button
+                type="button"
+                onClick={handleDisableBiometric}
+                className="mt-2 w-full text-center text-xs text-muted-foreground underline-offset-4 hover:underline"
+              >
+                Remover Windows Hello deste dispositivo
+              </button>
+            </div>
+          )}
 
           {/* Persistent Storage */}
           <div className="mt-6 rounded-lg border border-border bg-card/50 p-4">
