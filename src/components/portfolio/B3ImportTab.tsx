@@ -27,7 +27,7 @@ import { usePortfolios } from "@/hooks/usePortfolios";
 import { useAssets } from "@/hooks/useAssets";
 import { normalizeTickerForStorage } from "@/lib/ticker";
 import { buildImportDedupKey } from "@/lib/import-dedup";
-import type { Transaction, Dividend, Asset } from "@/types/financial";
+import type { Transaction, Dividend, Asset, CashMovement } from "@/types/financial";
 
 type FileType = "negociacao" | "movimentacao" | "fundos" | null;
 
@@ -150,15 +150,16 @@ interface B3ImportTabProps {
 export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const { toast } = useToast();
   const {
-    saveTransaction,
-    saveDividend,
-    saveCashMovement,
+    saveAssetsBulk,
+    saveTransactionsBulk,
+    saveDividendsBulk,
+    saveCashMovementsBulk,
     getTransactions,
     getDividends,
     getCashMovements,
   } = useSecureStorage();
   const { portfolios } = usePortfolios();
-  const { assets, createAsset } = useAssets();
+  const { assets, refresh: refreshAssets } = useAssets();
 
   const [fileType, setFileType] = useState<FileType>(null);
   const [negociacaoRows, setNegociacaoRows] = useState<NegociacaoRow[]>([]);
@@ -510,12 +511,15 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     return defaultPortfolioForNewAssets || null;
   };
 
-  const getOrCreateAssetForTicker = async (
+  // Resolve um ativo existente ou prepara um novo (sem persistir ainda). Os ativos novos
+  // são acumulados em `newAssets` para gravação em lote ao final da importação.
+  const resolveOrStageAsset = (
     localMap: Map<string, Asset[]>,
+    newAssets: Asset[],
     ticker: string,
     suggestedName?: string,
     typeOverride?: Asset["type"]
-  ): Promise<Asset | null> => {
+  ): Asset | null => {
     const existing = localMap.get(ticker) ?? [];
 
     if (existing.length === 1) return existing[0];
@@ -542,17 +546,22 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       return null;
     }
 
-    const asset = await createAsset({
+    const now = Date.now();
+    const asset: Asset = {
+      id: crypto.randomUUID(),
       portfolioId,
-      ticker,
+      ticker: normalizeTickerForStorage(ticker, typeOverride),
       name: suggestedName ?? ticker,
       type: typeOverride ?? inferAssetType(ticker),
       targetAllocation: 0,
       shares: 0,
       averagePrice: 0,
-    });
+      createdAt: now,
+      updatedAt: now,
+    };
 
     localMap.set(ticker, [asset]);
+    newAssets.push(asset);
     return asset;
   };
 
@@ -567,6 +576,10 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       } else if (fileType === "fundos") {
         await importFundos();
       }
+
+      // Recarrega os ativos para que uma próxima importação na sequência enxergue
+      // os que acabamos de criar (evita duplicar ativos entre arquivos).
+      await refreshAssets();
 
       toast({ title: "Importação concluída com sucesso!" });
       setFileType(null);
@@ -586,6 +599,8 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const importNegociacoes = async () => {
     const selected = negociacaoRows.filter((r) => r.selected);
     const localAssetByTicker = new Map(assetsByTicker);
+    const newAssets: Asset[] = [];
+    const newTransactions: Transaction[] = [];
 
     // De-dup against existing vault entries and within this import batch.
     const existingTransactions = await getTransactions();
@@ -601,20 +616,17 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     );
     const batchKeys = new Set<string>();
     let skippedDuplicates = 0;
+    let invalidTickers = 0;
 
     for (const row of selected) {
       const tickerParsed = tickerSchema.safeParse(row.ticker);
       if (!tickerParsed.success) {
-        toast({
-          title: "Ticker inválido no arquivo",
-          description: String(row.ticker),
-          variant: "destructive",
-        });
+        invalidTickers++;
         continue;
       }
 
       const ticker = tickerParsed.data;
-      const asset = await getOrCreateAssetForTicker(localAssetByTicker, ticker, ticker);
+      const asset = resolveOrStageAsset(localAssetByTicker, newAssets, ticker, ticker);
       if (!asset) continue;
 
       const date = parseDateBR(row.date);
@@ -631,7 +643,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       }
       batchKeys.add(dedupKey);
 
-      const transaction: Transaction = {
+      newTransactions.push({
         id: crypto.randomUUID(),
         assetId: asset.id,
         portfolioId: asset.portfolioId,
@@ -643,11 +655,19 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         date,
         notes: "Importado B3",
         createdAt: Date.now(),
-      };
-
-      await saveTransaction(transaction);
+      });
     }
 
+    await saveAssetsBulk(newAssets);
+    await saveTransactionsBulk(newTransactions);
+
+    if (invalidTickers > 0) {
+      toast({
+        title: "Linhas ignoradas",
+        description: `${invalidTickers} linha(s) com ticker inválido foram ignoradas.`,
+        variant: "destructive",
+      });
+    }
     if (skippedDuplicates > 0) {
       toast({
         title: "Duplicidades ignoradas",
@@ -659,6 +679,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const importMovimentacoes = async () => {
     const selected = movimentacaoRows.filter((r) => r.selected);
     const localAssetByTicker = new Map(assetsByTicker);
+    const newAssets: Asset[] = [];
+    const newDividends: Dividend[] = [];
+    const newCash: CashMovement[] = [];
 
     // De-dup against existing vault entries and within this import batch.
     const [existingDividends, existingCash] = await Promise.all([
@@ -714,8 +737,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         }
 
         const ticker = tickerParsed.data;
-        const asset = await getOrCreateAssetForTicker(
+        const asset = resolveOrStageAsset(
           localAssetByTicker,
+          newAssets,
           ticker,
           normalizeAssetName(row.productName, ticker)
         );
@@ -735,7 +759,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         }
         batchKeys.add(dedupKey);
 
-        const dividend: Dividend = {
+        newDividends.push({
           id: crypto.randomUUID(),
           assetId: asset.id,
           portfolioId: asset.portfolioId,
@@ -747,9 +771,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
           totalValue: row.value,
           paymentDate,
           createdAt: Date.now(),
-        };
-
-        await saveDividend(dividend);
+        });
         continue;
       }
 
@@ -763,8 +785,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         let portfolioId: string | null = null;
 
         if (ticker) {
-          const asset = await getOrCreateAssetForTicker(
+          const asset = resolveOrStageAsset(
             localAssetByTicker,
+            newAssets,
             ticker,
             normalizeAssetName(row.productName, ticker)
           );
@@ -798,7 +821,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         }
         batchKeys.add(dedupKey);
 
-        await saveCashMovement({
+        newCash.push({
           id: crypto.randomUUID(),
           portfolioId,
           type: "deposit",
@@ -814,6 +837,10 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       // Add more conditions for other movement types as needed
     }
 
+    await saveAssetsBulk(newAssets);
+    await saveDividendsBulk(newDividends);
+    await saveCashMovementsBulk(newCash);
+
     if (skippedDuplicates > 0) {
       toast({
         title: "Duplicidades ignoradas",
@@ -825,6 +852,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const importFundos = async () => {
     const selected = fundoRows.filter((r) => r.selected);
     const localAssetByTicker = new Map(assetsByTicker);
+    const newAssets: Asset[] = [];
+    const newTransactions: Transaction[] = [];
+    let invalidAssets = 0;
 
     // De-dup contra o cofre e dentro do lote (mesma chave usada nas negociações).
     const existingTransactions = await getTransactions();
@@ -843,16 +873,13 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
 
     for (const row of selected) {
       if (!row.ticker) {
-        toast({
-          title: "Ativo inválido no arquivo",
-          description: String(row.ativo),
-          variant: "destructive",
-        });
+        invalidAssets++;
         continue;
       }
 
-      const asset = await getOrCreateAssetForTicker(
+      const asset = resolveOrStageAsset(
         localAssetByTicker,
+        newAssets,
         row.ticker.toUpperCase(),
         row.name,
         row.assetType
@@ -873,7 +900,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       }
       batchKeys.add(dedupKey);
 
-      const transaction: Transaction = {
+      newTransactions.push({
         id: crypto.randomUUID(),
         assetId: asset.id,
         portfolioId: asset.portfolioId,
@@ -885,11 +912,19 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         date,
         notes: `Importado planilha • ${row.evento}`,
         createdAt: Date.now(),
-      };
-
-      await saveTransaction(transaction);
+      });
     }
 
+    await saveAssetsBulk(newAssets);
+    await saveTransactionsBulk(newTransactions);
+
+    if (invalidAssets > 0) {
+      toast({
+        title: "Linhas ignoradas",
+        description: `${invalidAssets} linha(s) sem identificador de ativo foram ignoradas.`,
+        variant: "destructive",
+      });
+    }
     if (skippedDuplicates > 0) {
       toast({
         title: "Duplicidades ignoradas",

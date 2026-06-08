@@ -3,7 +3,7 @@
  * Integrates real-time prices from Brapi
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSecureStorage } from '@/contexts/SecureStorageContext';
 import { usePrices, type Quote } from '@/hooks/usePrices';
 import type { Portfolio, Asset, Transaction } from '@/types/financial';
@@ -259,16 +259,25 @@ export function usePortfolios() {
     loadPortfolios();
   }, [loadPortfolios]);
 
-  // Recarrega automaticamente quando qualquer parte do cofre mudar (ex.: manutenção de tickers)
+  // Recarrega automaticamente quando qualquer parte do cofre mudar (ex.: manutenção de tickers).
+  // Com debounce: uma importação em massa dispara muitos eventos em sequência; sem isso
+  // recarregaríamos (e buscaríamos cotações) dezenas de vezes, estourando a edge function.
+  const reloadDebounceRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (!isUnlocked) return;
 
     const onVaultDataChanged = () => {
-      loadPortfolios();
+      if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
+      reloadDebounceRef.current = setTimeout(() => {
+        loadPortfolios();
+      }, 600);
     };
 
     window.addEventListener('vault-data-changed', onVaultDataChanged);
-    return () => window.removeEventListener('vault-data-changed', onVaultDataChanged);
+    return () => {
+      window.removeEventListener('vault-data-changed', onVaultDataChanged);
+      if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
+    };
   }, [isUnlocked, loadPortfolios]);
 
   // Refresh quotes periodically (every 5 minutes)
