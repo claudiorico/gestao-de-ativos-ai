@@ -11,6 +11,7 @@ import {
   isGoogleDriveConnected,
   GoogleAuthInteractionRequiredError,
   getGoogleDriveBackupInfo,
+  hasValidGoogleToken,
 } from '@/lib/google-drive';
 import { updateSyncStatus, getSyncStatus } from '@/lib/backup';
 import { toast } from '@/hooks/use-toast';
@@ -27,6 +28,12 @@ export function useAutoSync() {
   const lastNeedActionToastAtRef = useRef<number>(0);
 
   const performSync = useCallback(async () => {
+    // Se estávamos travados aguardando reconexão mas já existe um token válido
+    // (usuário reconectou o Drive), destrava e segue normalmente.
+    if (needsUserActionRef.current && hasValidGoogleToken()) {
+      needsUserActionRef.current = false;
+    }
+
     if (
       isSyncingRef.current ||
       !isUnlocked ||

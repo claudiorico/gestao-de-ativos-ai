@@ -54,18 +54,6 @@ export class GoogleAuthInteractionRequiredError extends Error {
   }
 }
 
-function isInteractionRequiredError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err ?? '');
-  // Erros comuns quando o navegador bloqueia popup ou quando o usuário ainda não consentiu.
-  return (
-    msg.includes('popup') ||
-    msg.includes('Failed to open popup') ||
-    msg.includes('interaction_required') ||
-    msg.includes('consent_required') ||
-    msg.includes('access_denied')
-  );
-}
-
 declare global {
   interface Window {
     google?: {
@@ -167,6 +155,19 @@ async function requestGisAccessToken(
   });
 }
 
+/**
+ * Há um access token ainda válido em cache? Usado para destravar o auto-sync
+ * depois que o usuário reconecta (sem depender de reload da página).
+ */
+export function hasValidGoogleToken(): boolean {
+  const c = getGoogleDriveConfig();
+  return !!(
+    c?.accessToken &&
+    c.expiresAt &&
+    c.expiresAt - Date.now() > EXPIRY_SAFETY_WINDOW_MS
+  );
+}
+
 async function getValidAccessToken(
   clientId: string,
   opts?: { allowInteractive?: boolean }
@@ -183,7 +184,14 @@ async function getValidAccessToken(
     return config.accessToken;
   }
 
-  // Try silent refresh first.
+  // Sem token válido. Em segundo plano (auto-sync, sem gesto do usuário) NÃO tentamos
+  // renovar: o modelo de token do GIS não tem refresh token silencioso e abrir popup
+  // sem clique é bloqueado pelo navegador. Sinalizamos que é preciso reconectar.
+  if (!allowInteractive) {
+    throw new GoogleAuthInteractionRequiredError();
+  }
+
+  // Fluxo interativo (disparado por clique): tenta silencioso e cai para consentimento.
   try {
     const { accessToken, expiresIn } = await requestGisAccessToken(clientId, "");
     const userEmail = await fetchUserEmail(accessToken);
@@ -198,14 +206,6 @@ async function getValidAccessToken(
 
     return accessToken;
   } catch (e) {
-    // Em modo auto-sync (sem gesto do usuário), não devemos insistir em abrir popup.
-    if (!allowInteractive) {
-      if (isInteractionRequiredError(e)) {
-        throw new GoogleAuthInteractionRequiredError();
-      }
-      throw e;
-    }
-
     // Fallback to interactive consent.
     const { accessToken, expiresIn } = await requestGisAccessToken(clientId, "consent");
     const userEmail = await fetchUserEmail(accessToken);
