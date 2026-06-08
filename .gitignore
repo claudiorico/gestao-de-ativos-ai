@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Dados pessoais de importação (não comitar)
+b3-import/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

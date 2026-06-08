@@ -21,7 +21,7 @@ import { normalizeTickerForStorage } from "@/lib/ticker";
 import { buildImportDedupKey } from "@/lib/import-dedup";
 import type { Transaction, Dividend, Asset } from "@/types/financial";
 
-type FileType = "negociacao" | "movimentacao" | null;
+type FileType = "negociacao" | "movimentacao" | "fundos" | null;
 
 interface NegociacaoRow {
   date: string;
@@ -40,6 +40,22 @@ interface MovimentacaoRow {
   ticker: string;
   quantity: number;
   pricePerShare: number;
+  value: number;
+  selected: boolean;
+}
+
+// Fundos de investimento (CNPJ) e Tesouro Direto: ativos cujo identificador
+// não é um ticker de bolsa, então têm parser/tipo próprios.
+interface FundoRow {
+  date: string;
+  ativo: string; // original (ex.: "CVM:29562673000117" ou "TD:PRE2035JUROS")
+  name: string;
+  ticker: string; // identificador já normalizado para armazenamento
+  assetType: Asset["type"]; // investment_fund | fixed_income
+  evento: string;
+  type: "buy" | "sell";
+  quantity: number;
+  price: number;
   value: number;
   selected: boolean;
 }
@@ -77,6 +93,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const [fileType, setFileType] = useState<FileType>(null);
   const [negociacaoRows, setNegociacaoRows] = useState<NegociacaoRow[]>([]);
   const [movimentacaoRows, setMovimentacaoRows] = useState<MovimentacaoRow[]>([]);
+  const [fundoRows, setFundoRows] = useState<FundoRow[]>([]);
   const [defaultPortfolioForNewAssets, setDefaultPortfolioForNewAssets] = useState<string>("");
   const [autoCreateMissingAssets, setAutoCreateMissingAssets] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
@@ -151,6 +168,13 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
 
           const isMov = normalized.includes("entrada/saida") && normalized.includes("movimentacao");
           if (isMov) return { type: "movimentacao", index: i, headers: normalized };
+
+          // Formato próprio de fundos/tesouro: ativo;classe;date;evento;quantidade;preco;valor;observacao
+          const isFundos =
+            normalized.includes("classe") &&
+            normalized.includes("ativo") &&
+            normalized.includes("evento");
+          if (isFundos) return { type: "fundos", index: i, headers: normalized };
         }
 
         return { type: null, index: -1, headers: [] };
@@ -232,6 +256,10 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         parseMovimentacaoFile(rows);
         setFileType("movimentacao");
         toast({ title: "Arquivo de Movimentação detectado" });
+      } else if (detected.type === "fundos") {
+        parseFundosFile(rows);
+        setFileType("fundos");
+        toast({ title: "Arquivo de Fundos/Tesouro detectado" });
       }
     } catch (error) {
       console.error("[B3Import] Parse error:", error);
@@ -295,6 +323,51 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     setMovimentacaoRows(parsed);
   };
 
+  const parseFundosFile = (rows: any[][]) => {
+    const parsed: FundoRow[] = [];
+
+    // Cabeçalho: ativo;classe;date;evento;quantidade;preco;valor;observacao
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length < 7) continue;
+
+      const [ativo, classe, dateStr, evento, qty, price, value, obs] = row;
+      if (!ativo || !dateStr) continue;
+
+      const classeNorm = normalizeHeader(classe);
+      const ativoStr = String(ativo).trim();
+      const isFixedIncome =
+        classeNorm.includes("fixa") ||
+        classeNorm.includes("tesouro") ||
+        /^TD:/i.test(ativoStr);
+      const assetType: Asset["type"] = isFixedIncome ? "fixed_income" : "investment_fund";
+
+      // Identificador armazenado: fundo CVM -> CNPJ (14 dígitos); tesouro -> remove o prefixo "TD:".
+      const tickerBase = isFixedIncome ? ativoStr.replace(/^TD:/i, "") : ativoStr;
+      const ticker = normalizeTickerForStorage(tickerBase, assetType);
+
+      const ev = String(evento || "").trim().toUpperCase();
+      // C = compra; V/C.COTA (come-cotas) = saída de cotas.
+      const type: "buy" | "sell" = ev === "C" ? "buy" : "sell";
+
+      parsed.push({
+        date: String(dateStr),
+        ativo: ativoStr,
+        name: String(obs || "").trim() || ativoStr,
+        ticker,
+        assetType,
+        evento: ev,
+        type,
+        quantity: Math.abs(Number(qty) || 0),
+        price: Math.abs(Number(price) || 0),
+        value: Math.abs(Number(value) || 0),
+        selected: true,
+      });
+    }
+
+    setFundoRows(parsed);
+  };
+
   const toggleRowSelection = (index: number) => {
     if (fileType === "negociacao") {
       setNegociacaoRows((prev) =>
@@ -302,6 +375,10 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       );
     } else if (fileType === "movimentacao") {
       setMovimentacaoRows((prev) =>
+        prev.map((r, i) => (i === index ? { ...r, selected: !r.selected } : r))
+      );
+    } else if (fileType === "fundos") {
+      setFundoRows((prev) =>
         prev.map((r, i) => (i === index ? { ...r, selected: !r.selected } : r))
       );
     }
@@ -312,6 +389,8 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       setNegociacaoRows((prev) => prev.map((r) => ({ ...r, selected: true })));
     } else if (fileType === "movimentacao") {
       setMovimentacaoRows((prev) => prev.map((r) => ({ ...r, selected: true })));
+    } else if (fileType === "fundos") {
+      setFundoRows((prev) => prev.map((r) => ({ ...r, selected: true })));
     }
   };
 
@@ -320,6 +399,8 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       setNegociacaoRows((prev) => prev.map((r) => ({ ...r, selected: false })));
     } else if (fileType === "movimentacao") {
       setMovimentacaoRows((prev) => prev.map((r) => ({ ...r, selected: false })));
+    } else if (fileType === "fundos") {
+      setFundoRows((prev) => prev.map((r) => ({ ...r, selected: false })));
     }
   };
 
@@ -362,7 +443,8 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const getOrCreateAssetForTicker = async (
     localMap: Map<string, Asset[]>,
     ticker: string,
-    suggestedName?: string
+    suggestedName?: string,
+    typeOverride?: Asset["type"]
   ): Promise<Asset | null> => {
     const existing = localMap.get(ticker) ?? [];
 
@@ -394,7 +476,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       portfolioId,
       ticker,
       name: suggestedName ?? ticker,
-      type: inferAssetType(ticker),
+      type: typeOverride ?? inferAssetType(ticker),
       targetAllocation: 0,
       shares: 0,
       averagePrice: 0,
@@ -412,12 +494,15 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         await importNegociacoes();
       } else if (fileType === "movimentacao") {
         await importMovimentacoes();
+      } else if (fileType === "fundos") {
+        await importFundos();
       }
 
       toast({ title: "Importação concluída com sucesso!" });
       setFileType(null);
       setNegociacaoRows([]);
       setMovimentacaoRows([]);
+      setFundoRows([]);
       setDefaultPortfolioForNewAssets("");
       onImportComplete();
     } catch (error) {
@@ -667,15 +752,96 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     }
   };
 
+  const importFundos = async () => {
+    const selected = fundoRows.filter((r) => r.selected);
+    const localAssetByTicker = new Map(assetsByTicker);
+
+    // De-dup contra o cofre e dentro do lote (mesma chave usada nas negociações).
+    const existingTransactions = await getTransactions();
+    const existingKeys = new Set(
+      existingTransactions.map((t) =>
+        buildImportDedupKey({
+          scope: `tx:${t.assetId}:${t.type}`,
+          date: t.date,
+          quantity: t.shares,
+          value: t.totalValue,
+        })
+      )
+    );
+    const batchKeys = new Set<string>();
+    let skippedDuplicates = 0;
+
+    for (const row of selected) {
+      if (!row.ticker) {
+        toast({
+          title: "Ativo inválido no arquivo",
+          description: String(row.ativo),
+          variant: "destructive",
+        });
+        continue;
+      }
+
+      const asset = await getOrCreateAssetForTicker(
+        localAssetByTicker,
+        row.ticker.toUpperCase(),
+        row.name,
+        row.assetType
+      );
+      if (!asset) continue;
+
+      const date = parseDateBR(row.date);
+      const dedupKey = buildImportDedupKey({
+        scope: `tx:${asset.id}:${row.type}`,
+        date,
+        quantity: row.quantity,
+        value: row.value,
+      });
+
+      if (existingKeys.has(dedupKey) || batchKeys.has(dedupKey)) {
+        skippedDuplicates++;
+        continue;
+      }
+      batchKeys.add(dedupKey);
+
+      const transaction: Transaction = {
+        id: crypto.randomUUID(),
+        assetId: asset.id,
+        portfolioId: asset.portfolioId,
+        type: row.type,
+        shares: row.quantity,
+        pricePerShare: row.price,
+        fees: 0,
+        totalValue: row.value,
+        date,
+        notes: `Importado planilha • ${row.evento}`,
+        createdAt: Date.now(),
+      };
+
+      await saveTransaction(transaction);
+    }
+
+    if (skippedDuplicates > 0) {
+      toast({
+        title: "Duplicidades ignoradas",
+        description: `${skippedDuplicates} movimentaç${skippedDuplicates === 1 ? "ão" : "ões"} já existiam e não foram importadas.`,
+      });
+    }
+  };
+
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
-  const selectedCount =
+  const activeRows =
     fileType === "negociacao"
-      ? negociacaoRows.filter((r) => r.selected).length
-      : movimentacaoRows.filter((r) => r.selected).length;
+      ? negociacaoRows
+      : fileType === "movimentacao"
+      ? movimentacaoRows
+      : fileType === "fundos"
+      ? fundoRows
+      : [];
 
-  const totalCount = fileType === "negociacao" ? negociacaoRows.length : movimentacaoRows.length;
+  const selectedCount = activeRows.filter((r) => r.selected).length;
+  const totalCount = activeRows.length;
 
   return (
     <div className="rounded-xl border border-border bg-card p-6 shadow-card space-y-5">
@@ -684,7 +850,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
           <div className="space-y-2">
             <Label>Selecione o arquivo XLSX da B3</Label>
             <p className="text-sm text-muted-foreground">
-              Aceita dois formatos: <strong>Negociação</strong> (compra/venda) e <strong>Movimentação</strong> (proventos, transferências, etc.)
+              Aceita três formatos: <strong>Negociação</strong> (compra/venda), <strong>Movimentação</strong> (proventos) e <strong>Fundos/Tesouro</strong> (fundos por CNPJ e Tesouro Direto).
             </p>
           </div>
 
@@ -713,7 +879,11 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
               <FileSpreadsheet className="h-5 w-5 text-primary" />
               <div>
                 <p className="font-semibold text-foreground">
-                  {fileType === "negociacao" ? "Negociação" : "Movimentação"}
+                  {fileType === "negociacao"
+                    ? "Negociação"
+                    : fileType === "movimentacao"
+                    ? "Movimentação"
+                    : "Fundos/Tesouro"}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {selectedCount} de {totalCount} selecionadas
@@ -845,6 +1015,33 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
                       <td className="px-3 py-2 text-right tabular-nums">{row.quantity || "-"}</td>
                       <td className="px-3 py-2 text-right tabular-nums">
                         {row.pricePerShare ? formatCurrency(row.pricePerShare) : "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                        {formatCurrency(row.value)}
+                      </td>
+                    </tr>
+                  ))}
+
+                {fileType === "fundos" &&
+                  fundoRows.map((row, index) => (
+                    <tr
+                      key={index}
+                      className={row.selected ? "bg-card" : "bg-muted/20 opacity-50"}
+                    >
+                      <td className="px-3 py-2">
+                        <Checkbox
+                          checked={row.selected}
+                          onCheckedChange={() => toggleRowSelection(index)}
+                        />
+                      </td>
+                      <td className="px-3 py-2">{row.date}</td>
+                      <td className="px-3 py-2 text-xs">{row.evento}</td>
+                      <td className="px-3 py-2 font-mono font-semibold" title={row.ativo}>
+                        {row.name}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{row.quantity || "-"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {row.price ? formatCurrency(row.price) : "-"}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold">
                         {formatCurrency(row.value)}
