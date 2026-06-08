@@ -2,7 +2,7 @@
  * Backend Functions client
  *
  * Goal: make deployments portable by allowing routing of backend function calls
- * either to the built-in Lovable Cloud backend (default) or to an external HTTP
+ * either to the Supabase Edge Functions backend (default) or to an external HTTP
  * endpoint (configured at deploy time).
  *
  * Env vars (optional):
@@ -34,7 +34,7 @@ export async function invokeBackendFunction<TData = any>(
 ): Promise<{ data: TData | null; error: BackendFunctionError | null }> {
   const baseUrl = (import.meta.env.VITE_FUNCTIONS_BASE_URL as string | undefined)?.trim();
 
-  // Default path: use Lovable Cloud backend via Supabase SDK
+  // Default path: use Supabase Edge Functions via Supabase SDK
   if (!baseUrl) {
     const { data, error } = await supabase.functions.invoke<TData>(name, {
       body: opts.body,

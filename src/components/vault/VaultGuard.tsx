@@ -1,11 +1,11 @@
 /**
  * Vault Guard - Wrapper that ensures vault is unlocked before showing content
- * This runs AFTER FirebaseAuthGuard ensures the user is logged in
+ * This runs AFTER AuthGuard ensures the user is logged in
  */
 
 import { useState, useEffect } from 'react';
 import { useSecureStorage } from '@/contexts/SecureStorageContext';
-import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+import { useAuthUser } from '@/contexts/GoogleUserContext';
 import { VaultSetup } from './VaultSetup';
 import { VaultUnlock } from './VaultUnlock';
 import { motion } from 'framer-motion';
@@ -18,7 +18,7 @@ interface VaultGuardProps {
 
 export function VaultGuard({ children }: VaultGuardProps) {
   const { isInitialized, isUnlocked, isLoading } = useSecureStorage();
-  const { user } = useFirebaseAuth();
+  const { user } = useAuthUser();
   const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {

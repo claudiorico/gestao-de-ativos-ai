@@ -3,7 +3,7 @@
  * Provides user info (name, email, photo) and persists session across reloads
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { getGoogleDriveConfig, setGoogleDriveConfig, clearGoogleDriveConfig, type GoogleDriveConfig } from '@/lib/google-drive';
 
 export interface GoogleUserProfile {
@@ -109,8 +109,6 @@ export function GoogleUserProvider({ children }: { children: React.ReactNode }) 
         
         // Check if we have a valid token
         if (config?.accessToken && config.expiresAt && config.expiresAt > Date.now()) {
-          console.log('[GoogleUser] Found valid session');
-          
           if (storedProfile) {
             // Use stored profile immediately
             setUser(storedProfile);
@@ -132,10 +130,7 @@ export function GoogleUserProvider({ children }: { children: React.ReactNode }) 
           }
         } else if (storedProfile) {
           // Token expired but we have cached profile - user needs to re-auth
-          console.log('[GoogleUser] Token expired, using cached profile');
           setUser(storedProfile);
-        } else {
-          console.log('[GoogleUser] No session found');
         }
       } catch (error) {
         console.error('[GoogleUser] Error restoring session:', error);
@@ -156,7 +151,6 @@ export function GoogleUserProvider({ children }: { children: React.ReactNode }) 
       if (profile) {
         setUser(profile);
         storeProfile(profile);
-        console.log('[GoogleUser] Logged in as:', profile.email);
       }
     } catch (error) {
       console.error('[GoogleUser] Login error:', error);
@@ -170,7 +164,6 @@ export function GoogleUserProvider({ children }: { children: React.ReactNode }) 
     setUser(null);
     clearStoredProfile();
     clearGoogleDriveConfig();
-    console.log('[GoogleUser] Logged out');
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -224,4 +217,34 @@ export function useGoogleUser() {
     throw new Error('useGoogleUser must be used within GoogleUserProvider');
   }
   return context;
+}
+
+/**
+ * Compatibility adapter: exposes the Google session using the same shape the app
+ * consumers expect (displayName / photoURL / uid). Lets components stay agnostic
+ * of the underlying provider.
+ */
+export function useAuthUser() {
+  const { user, isConnected, isLoading, logout, getUserNamespace } = useGoogleUser();
+
+  // uid is a primitive (string) so it keeps the memo stable across renders;
+  // without memoization a new `user` object each render re-triggers consumer effects.
+  const uid = getUserNamespace();
+
+  return useMemo(
+    () => ({
+      user: user
+        ? {
+            displayName: user.name,
+            photoURL: user.picture,
+            email: user.email,
+            uid,
+          }
+        : null,
+      isAuthenticated: isConnected,
+      isLoading,
+      logout,
+    }),
+    [user, uid, isConnected, isLoading, logout],
+  );
 }

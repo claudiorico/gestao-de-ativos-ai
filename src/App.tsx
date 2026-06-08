@@ -4,8 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import { SecureStorageProvider } from "@/contexts/SecureStorageContext";
-import { FirebaseAuthProvider } from "@/contexts/FirebaseAuthContext";
-import { FirebaseAuthGuard } from "@/components/auth/FirebaseAuthGuard";
+import { GoogleUserProvider } from "@/contexts/GoogleUserContext";
+import { AuthGuard } from "@/components/auth/AuthGuard";
 import { VaultGuard } from "@/components/vault/VaultGuard";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import Index from "./pages/Index";
@@ -28,15 +28,15 @@ function AutoSyncListener() {
   return null;
 }
 
-// ProtectedLayout: Firebase Auth -> Vault -> App Content
+// ProtectedLayout: Google Auth -> Vault -> App Content
 function ProtectedLayout() {
   return (
-    <FirebaseAuthGuard>
+    <AuthGuard>
       <VaultGuard>
         <AutoSyncListener />
         <Outlet />
       </VaultGuard>
-    </FirebaseAuthGuard>
+    </AuthGuard>
   );
 }
 
@@ -50,7 +50,7 @@ function AppContent() {
           {/* Auth helper screens (must be reachable without login) */}
           <Route path="/auth/diagnostico" element={<AuthDiagnostics />} />
 
-          {/* Everything requires: 1) Firebase login 2) Vault unlock */}
+          {/* Everything requires: 1) Google login 2) Vault unlock */}
           <Route element={<ProtectedLayout />}>
             <Route path="/" element={<Index />} />
             <Route path="/portfolio" element={<Portfolio />} />
@@ -72,11 +72,11 @@ function AppContent() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <FirebaseAuthProvider>
+      <GoogleUserProvider>
         <SecureStorageProvider>
           <AppContent />
         </SecureStorageProvider>
-      </FirebaseAuthProvider>
+      </GoogleUserProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

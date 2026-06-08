@@ -23,7 +23,7 @@ import {
   wipeDatabase,
   setUserNamespace,
 } from '@/lib/indexeddb';
-import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+import { useAuthUser } from '@/contexts/GoogleUserContext';
 import type {
   Portfolio,
   Asset,
@@ -109,10 +109,10 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
   const clearDecryptIssues = useCallback(() => setDecryptIssuesByStore({}), []);
   
-  // Get user namespace from Firebase context
-  const { user, isLoading: isUserLoading } = useFirebaseAuth();
-  
-  // Generate namespace from Firebase user
+  // Get user namespace from Google auth context
+  const { user, isLoading: isUserLoading } = useAuthUser();
+
+  // Generate namespace from the authenticated user
   const getUserNamespace = useCallback(() => {
     return user?.uid || 'local';
   }, [user]);
@@ -121,7 +121,6 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     if (!isUserLoading) {
       const namespace = getUserNamespace();
-      console.log('[Vault] Setting user namespace:', namespace);
       setUserNamespace(namespace);
     }
   }, [getUserNamespace, isUserLoading]);
@@ -129,7 +128,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
   // Check if vault is already set up on mount (after namespace is set)
   useEffect(() => {
     // Wait for auth to fully resolve AND have a user.
-    // Firebase can briefly emit "null" before restoring the session, which would
+    // Auth can briefly emit "null" before restoring the session, which would
     // incorrectly show the "create vault" screen for a moment.
     if (isUserLoading || !user) return;
 
@@ -138,16 +137,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
         const namespace = getUserNamespace();
         setUserNamespace(namespace);
 
-        console.log('[Vault] Checking vault setup for namespace:', namespace);
         await openDatabase();
         const metadata = await getItem('metadata', METADATA_KEY);
-        console.log('[Vault] Metadata found:', !!metadata);
-
-        // Also check if we have any data
-        if (metadata) {
-          const portfolios = await getItem('portfolios', 'master');
-          console.log('[Vault] Portfolios data exists:', !!portfolios);
-        }
 
         setState((prev) => ({
           ...prev,

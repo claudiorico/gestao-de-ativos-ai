@@ -15,7 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PrivacyBadge } from "./PrivacyBadge";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
-import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useAuthUser } from "@/contexts/GoogleUserContext";
 import { BackupRestoreDialog } from "@/components/backup/BackupRestoreDialog";
 import { isGoogleDriveConnected } from "@/lib/google-drive";
 import { getSyncStatus } from "@/lib/backup";
@@ -24,7 +24,7 @@ export function Header() {
   const [isDark, setIsDark] = useState(false);
   const [syncConnected, setSyncConnected] = useState(false);
   const { lockVault } = useSecureStorage();
-  const { user, isAuthenticated, logout } = useFirebaseAuth();
+  const { user, isAuthenticated, logout } = useAuthUser();
 
   // Get user initials for avatar fallback
   const getUserInitials = (): string => {

@@ -17,6 +17,7 @@ import {
   getPendingClientId,
   clearPendingClientId,
   checkPendingOAuthToken,
+  getAppGoogleClientId,
 } from '@/lib/google-drive';
 
 interface GoogleLoginScreenProps {
@@ -24,15 +25,17 @@ interface GoogleLoginScreenProps {
 }
 
 export function GoogleLoginScreen({ onLoginSuccess }: GoogleLoginScreenProps) {
+  const appClientId = getAppGoogleClientId();
   const [clientId, setClientId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showClientIdInput, setShowClientIdInput] = useState(false);
-  
+
   const { login } = useGoogleUser();
 
-  const handleGoogleLogin = async () => {
-    if (!clientId.trim()) {
+  const handleGoogleLogin = async (idToUse: string) => {
+    const trimmed = idToUse.trim();
+    if (!trimmed) {
       setError('Insira seu Google OAuth Client ID');
       return;
     }
@@ -41,7 +44,7 @@ export function GoogleLoginScreen({ onLoginSuccess }: GoogleLoginScreenProps) {
     setError(null);
 
     try {
-      const result = await initiateGoogleAuth(clientId);
+      const result = await initiateGoogleAuth(trimmed);
 
       if (result !== 'pending') {
         // Popup flow completed
@@ -138,16 +141,50 @@ export function GoogleLoginScreen({ onLoginSuccess }: GoogleLoginScreenProps) {
               {/* Login Button */}
               <Button
                 className="w-full gap-3 h-12 text-base"
-                onClick={() => setShowClientIdInput(true)}
+                disabled={isLoading}
+                onClick={() => {
+                  if (appClientId) {
+                    handleGoogleLogin(appClientId);
+                  } else {
+                    // Sem Client ID do app configurado → cai no modo avançado.
+                    setShowClientIdInput(true);
+                  }
+                }}
               >
-                <Chrome className="h-5 w-5" />
+                {isLoading ? (
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                  >
+                    <Chrome className="h-5 w-5" />
+                  </motion.div>
+                ) : (
+                  <Chrome className="h-5 w-5" />
+                )}
                 Entrar com Google
                 <ArrowRight className="h-4 w-4 ml-auto" />
               </Button>
 
-              <p className="text-center text-xs text-muted-foreground mt-4">
-                Você configura sua própria conexão OAuth para privacidade total
-              </p>
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3"
+                >
+                  <p className="text-sm text-destructive">{error}</p>
+                </motion.div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setShowClientIdInput(true);
+                }}
+                className="mt-4 w-full text-center text-xs text-muted-foreground underline-offset-4 hover:underline"
+              >
+                Usar meu próprio Client ID (avançado)
+              </button>
             </>
           ) : (
             <>
@@ -175,7 +212,7 @@ export function GoogleLoginScreen({ onLoginSuccess }: GoogleLoginScreenProps) {
                     placeholder="seu-client-id.apps.googleusercontent.com"
                     value={clientId}
                     onChange={(e) => setClientId(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleGoogleLogin()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleGoogleLogin(clientId)}
                   />
                 </div>
 
@@ -202,7 +239,7 @@ export function GoogleLoginScreen({ onLoginSuccess }: GoogleLoginScreenProps) {
                   </Button>
                   <Button
                     className="flex-1 gap-2"
-                    onClick={handleGoogleLogin}
+                    onClick={() => handleGoogleLogin(clientId)}
                     disabled={isLoading}
                   >
                     {isLoading ? (

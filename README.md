@@ -1,73 +1,81 @@
-# Welcome to your Lovable project
+# InvestPro Vault
 
-## Project info
+Gestão de investimentos com cofre criptografado local e backup no Google Drive.
+Acompanhe portfólio, balanceamento, movimentações, proventos, imposto de renda e analytics.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Tecnologias
 
-## How can I edit this code?
+- **Vite** + **React 18** + **TypeScript**
+- **shadcn-ui** + **Tailwind CSS**
+- **React Router** (roteamento client-side)
+- **Login com Google** via Google Identity Services (OAuth direto, sem Firebase)
+- **Supabase** (Edge Functions de cotações) e backup no **Google Drive**
 
-There are several ways of editing your application.
+## Desenvolvimento local
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Pré-requisito: Node.js & npm instalados ([instalar com nvm](https://github.com/nvm-sh/nvm#installing-and-updating)).
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
+# 1. Clonar o repositório
 git clone <YOUR_GIT_URL>
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# 2. Entrar na pasta do projeto
+cd gestao-de-ativos-ai
 
-# Step 3: Install the necessary dependencies.
+# 3. Instalar dependências
 npm i
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# 4. Subir o servidor de desenvolvimento (http://localhost:8080)
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Variáveis de ambiente
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Crie um arquivo `.env` na raiz (ou configure no provedor de deploy) com:
 
-**Use GitHub Codespaces**
+```
+VITE_GOOGLE_CLIENT_ID=...        # OAuth Client ID do app (login com Google)
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_PROJECT_ID=...
+VITE_SUPABASE_PUBLISHABLE_KEY=...
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+> **Login com Google:** o app usa um único `VITE_GOOGLE_CLIENT_ID` (OAuth Web do Google Cloud).
+> O usuário só clica em "Entrar com Google" e autentica na própria conta Google. Há também um
+> modo avançado "usar meu próprio Client ID" para quem quiser OAuth próprio (zero-knowledge total).
+> O Client ID OAuth de SPA é público por natureza — não é segredo.
 
-## What technologies are used for this project?
+> Como é um app Vite, as variáveis `VITE_*` são incorporadas no momento do **build**.
+> No deploy, defina-as no provedor antes de buildar.
 
-This project is built with:
+## Build
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```sh
+npm run build      # gera a versão de produção em dist/
+npm run preview    # serve o build localmente para conferência
+```
 
-## How can I deploy this project?
+## Deploy (Vercel)
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+1. Faça push para o GitHub.
+2. Em [vercel.com](https://vercel.com) → **Add New → Project** → importe este repositório.
+3. Framework Preset **Vite** (build `npm run build`, output `dist`) — já coberto pelo `vercel.json`.
+4. Cadastre as variáveis `VITE_*` em **Settings → Environment Variables**.
+5. **Google Cloud Console → APIs & Services → Credentials**, no OAuth Client ID (tipo
+   *Web application*) usado em `VITE_GOOGLE_CLIENT_ID`:
+   - **Authorized JavaScript origins**: `http://localhost:8080` e `https://<app>.vercel.app`.
+   - Configure a **OAuth consent screen** (test users ou publicado), senão o popup falha.
+6. **Deploy**.
 
-## Can I connect a custom domain to my Lovable project?
+O `vercel.json` já inclui o rewrite de SPA, garantindo que rotas profundas (ex.: `/portfolio`)
+funcionem ao recarregar a página.
 
-Yes, you can!
+## Backend (Supabase Edge Functions)
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+As cotações usam as functions `get-quotes` e `get-price-history`. Para atualizá-las:
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+```sh
+supabase functions deploy get-quotes get-price-history
+# opcional: liberar a origem do app por host
+supabase secrets set ALLOWED_ORIGIN_HOSTS=seu-app.vercel.app
+```

@@ -45,6 +45,7 @@ import {
   clearGoogleDriveConfig,
   getConnectedUserEmail,
   getGoogleDriveBackupInfo,
+  getAppGoogleClientId,
 } from '@/lib/google-drive';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -134,9 +135,12 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
     }
   };
   
+  const appClientId = getAppGoogleClientId();
+
   // Google Drive connection
-  const handleConnectGoogleDrive = async () => {
-    if (!clientId.trim()) {
+  const handleConnectGoogleDrive = async (idToUse: string = appClientId) => {
+    const trimmed = idToUse.trim();
+    if (!trimmed) {
       toast({
         title: 'Client ID necessário',
         description: 'Insira seu Google OAuth Client ID',
@@ -147,7 +151,7 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
 
     setIsLoading(true);
     try {
-      await initiateGoogleAuth(clientId);
+      await initiateGoogleAuth(trimmed);
       setShowClientIdInput(false);
       setIsConnected(true);
 
@@ -383,10 +387,10 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
                         <div className="text-xs text-warning">
-                          <p className="font-medium">Configure seu próprio OAuth</p>
+                          <p className="font-medium">Avançado: usar seu próprio OAuth</p>
                           <p className="mt-1 text-warning/80">
-                            Para manter zero-knowledge, você precisa criar seu próprio projeto
-                            no Google Cloud Console e gerar um Client ID.
+                            Opcional. Para zero-knowledge total, crie seu próprio projeto no
+                            Google Cloud Console e gere um Client ID.
                           </p>
                         </div>
                       </div>
@@ -413,7 +417,7 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
                       <Button
                         size="sm"
                         className="flex-1 gap-2"
-                        onClick={handleConnectGoogleDrive}
+                        onClick={() => handleConnectGoogleDrive(clientId)}
                         disabled={isLoading}
                       >
                         {isLoading ? (
@@ -426,14 +430,34 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
                     </div>
                   </div>
                 ) : (
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={() => setShowClientIdInput(true)}
-                  >
-                    <Cloud className="h-4 w-4" />
-                    Conectar Google Drive
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      disabled={isLoading}
+                      onClick={() => {
+                        if (appClientId) {
+                          handleConnectGoogleDrive(appClientId);
+                        } else {
+                          setShowClientIdInput(true);
+                        }
+                      }}
+                    >
+                      {isLoading ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Cloud className="h-4 w-4" />
+                      )}
+                      Conectar Google Drive
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setShowClientIdInput(true)}
+                      className="w-full text-center text-xs text-muted-foreground underline-offset-4 hover:underline"
+                    >
+                      Usar meu próprio Client ID (avançado)
+                    </button>
+                  </div>
                 )}
               </motion.div>
             )}

@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
-import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useAuthUser } from "@/contexts/GoogleUserContext";
 import { normalizeTickerForStorage } from "@/lib/ticker";
 
 import {
@@ -27,6 +27,7 @@ import {
   getPendingClientId,
   clearPendingClientId,
   getGoogleDriveBackupInfo,
+  getAppGoogleClientId,
 } from "@/lib/google-drive";
 import { toast } from "@/hooks/use-toast";
 import { GoogleOAuthTutorial } from "@/components/settings/GoogleOAuthTutorial";
@@ -91,7 +92,7 @@ export default function Settings() {
     saveAsset,
     notifyDataChange,
   } = useSecureStorage();
-  const { user } = useFirebaseAuth();
+  const { user } = useAuthUser();
 
   const [syncStatus, setSyncStatus] = useState(getSyncStatus());
   const [isConnected, setIsConnected] = useState(isGoogleDriveConnected());
@@ -353,9 +354,12 @@ export default function Settings() {
     }
   };
 
+  const appClientId = getAppGoogleClientId();
+
   // Google Drive connection
-  const handleConnectGoogleDrive = async () => {
-    if (!clientId.trim()) {
+  const handleConnectGoogleDrive = async (idToUse: string = appClientId) => {
+    const trimmed = idToUse.trim();
+    if (!trimmed) {
       toast({
         title: "Client ID necessário",
         description: "Insira seu Google OAuth Client ID",
@@ -366,7 +370,7 @@ export default function Settings() {
 
     setIsLoading(true);
     try {
-      const result = await initiateGoogleAuth(clientId);
+      const result = await initiateGoogleAuth(trimmed);
 
       // If result is 'pending', the token will be processed via redirect
       if (result !== 'pending') {
@@ -668,10 +672,10 @@ export default function Settings() {
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="mt-0.5 h-5 w-5 text-warning" />
                     <div className="text-sm text-warning">
-                      <p className="font-medium">Configure seu próprio OAuth</p>
+                      <p className="font-medium">Avançado: usar seu próprio OAuth</p>
                       <p className="mt-1 text-warning/80">
-                        Para manter zero-knowledge, você precisa criar seu próprio projeto
-                        no Google Cloud Console e gerar um Client ID.
+                        Opcional. Para zero-knowledge total, crie seu próprio projeto no
+                        Google Cloud Console e gere um Client ID.
                       </p>
                     </div>
                   </div>
@@ -699,7 +703,7 @@ export default function Settings() {
                   </Button>
                   <Button
                     className="flex-1 gap-2"
-                    onClick={handleConnectGoogleDrive}
+                    onClick={() => handleConnectGoogleDrive(clientId)}
                     disabled={isLoading}
                   >
                     {isLoading ? (
@@ -712,14 +716,34 @@ export default function Settings() {
                 </div>
               </div>
             ) : (
-              <Button
-                variant="outline"
-                className="w-full gap-2"
-                onClick={() => setShowClientIdInput(true)}
-              >
-                <Cloud className="h-4 w-4" />
-                Conectar Google Drive
-              </Button>
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
+                  disabled={isLoading}
+                  onClick={() => {
+                    if (appClientId) {
+                      handleConnectGoogleDrive(appClientId);
+                    } else {
+                      setShowClientIdInput(true);
+                    }
+                  }}
+                >
+                  {isLoading ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Cloud className="h-4 w-4" />
+                  )}
+                  Conectar Google Drive
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setShowClientIdInput(true)}
+                  className="w-full text-center text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  Usar meu próprio Client ID (avançado)
+                </button>
+              </div>
             )}
           </motion.div>
         )}

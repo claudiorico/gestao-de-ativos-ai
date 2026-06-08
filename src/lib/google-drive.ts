@@ -8,8 +8,17 @@
 import { createBackupPayload, parseBackupPayload } from "./backup";
 
 const GOOGLE_DRIVE_SCOPE =
-  "https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email";
+  "https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
 const BACKUP_FILENAME = "investpro-vault.encrypted";
+
+/**
+ * App-wide Google OAuth Client ID (single "Sign in with Google").
+ * Configured at build time via VITE_GOOGLE_CLIENT_ID. Returns "" when unset,
+ * which lets the UI fall back to the advanced "bring your own Client ID" flow.
+ */
+export function getAppGoogleClientId(): string {
+  return (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() ?? "";
+}
 
 export interface GoogleDriveConfig {
   clientId: string;
