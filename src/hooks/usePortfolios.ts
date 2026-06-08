@@ -183,9 +183,18 @@ export function usePortfolios() {
     const totalValue = enrichedAssets.reduce((sum, a) => sum + a.currentValue, 0);
     const totalCost = allAssets.reduce((sum, a) => sum + a.shares * a.averagePrice, 0);
 
+    // Oculta ativos zerados (totalmente vendidos): quantidade ~0 e sem alocação-alvo.
+    // Mantém o ativo/transações no cofre (histórico/IR), só não exibe na carteira.
+    // Papéis planejados (shares 0 mas com alocação-alvo > 0) continuam visíveis.
+    const HOLDING_EPS = 1e-8;
+    const isVisibleHolding = (a: AssetWithPrice) =>
+      a.shares > HOLDING_EPS || (a.targetAllocation ?? 0) > 0;
+
     // Map portfolios with their enriched assets
     const enrichedPortfolios: PortfolioWithAssets[] = portfolios.map((portfolio) => {
-      const assets = enrichedAssets.filter((a) => a.portfolioId === portfolio.id);
+      const assets = enrichedAssets.filter(
+        (a) => a.portfolioId === portfolio.id && isVisibleHolding(a)
+      );
       const currentValue = assets.reduce((sum, a) => sum + a.currentValue, 0);
       const costBasis = assets.reduce((sum, a) => sum + a.shares * a.averagePrice, 0);
       const currentAllocation = totalValue > 0 ? (currentValue / totalValue) * 100 : 0;
