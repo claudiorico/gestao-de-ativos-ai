@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader } from 'https://deno.land/x/zipjs@v2.7.52/index.js';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -168,10 +169,6 @@ async function getInfDiarioCsv(yyyymm: string): Promise<string | null> {
   }
 
   const zipBytes = new Uint8Array(await resp.arrayBuffer());
-  const { Uint8ArrayReader, Uint8ArrayWriter, ZipReader } = await import(
-    "https://deno.land/x/zipjs/index.js"
-  );
-
   const zipReader = new ZipReader(new Uint8ArrayReader(zipBytes));
   const entries = await (zipReader as any).getEntries();
   const csvEntry = entries.find((e: any) => String(e?.filename ?? "").toLowerCase().endsWith(".csv"));
