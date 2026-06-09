@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Upload, X, FileSpreadsheet, Download, HelpCircle, Copy } from "lucide-react";
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -169,6 +169,14 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const [defaultPortfolioForNewAssets, setDefaultPortfolioForNewAssets] = useState<string>("");
   const [autoCreateMissingAssets, setAutoCreateMissingAssets] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
+
+  // Pré-seleciona a primeira carteira como destino dos ativos novos (quando há mais de uma),
+  // para o usuário ver/escolher em vez de o importador descartar por falta de seleção.
+  useEffect(() => {
+    if (portfolios.length > 1 && !defaultPortfolioForNewAssets) {
+      setDefaultPortfolioForNewAssets(portfolios[0].id);
+    }
+  }, [portfolios, defaultPortfolioForNewAssets]);
 
   const normalizeHeader = (v: unknown) =>
     String(v ?? "")
@@ -513,7 +521,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
 
   const resolvePortfolioForNewAssets = () => {
     if (portfolios.length === 1) return portfolios[0].id;
-    return defaultPortfolioForNewAssets || null;
+    // Usa a carteira escolhida; se nenhuma foi escolhida, cai na primeira (em vez de
+    // descartar silenciosamente os ativos novos quando há mais de uma carteira).
+    return defaultPortfolioForNewAssets || portfolios[0]?.id || null;
   };
 
   // Resolve um ativo existente ou prepara um novo (sem persistir ainda). Os ativos novos
