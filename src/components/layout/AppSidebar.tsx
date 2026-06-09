@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -36,15 +36,25 @@ const menuItems = [
 ];
 
 export function AppSidebar() {
-  const { setOpen, open, isMobile } = useSidebar();
+  const { setOpen, setOpenMobile, open, isMobile } = useSidebar();
   const location = useLocation();
 
   // Close sidebar on route change in mobile
   useEffect(() => {
     if (isMobile) {
-      setOpen(false);
+      setOpenMobile(false);
     }
-  }, [location.pathname, isMobile, setOpen]);
+  }, [location.pathname, isMobile, setOpenMobile]);
+
+  const handleNavClick = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+      return;
+    }
+
+    // Desktop: recolhe após clicar em qualquer item
+    setOpen(false);
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
@@ -74,7 +84,7 @@ export function AppSidebar() {
                 
                 return (
                   <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.title} onClick={handleNavClick}>
                       <NavLink to={item.url} end>
                         <Icon className="h-4 w-4" />
                         <span>{item.title}</span>
