@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Loader2, ArrowRightLeft } from "lucide-react";
 
@@ -30,7 +30,9 @@ const formatPercent = (value: number) =>
 export default function PortfolioDetailPage() {
   const navigate = useNavigate();
   const { portfolioId } = useParams<{ portfolioId: string }>();
-  const { portfoliosWithAssets, isLoading } = usePortfolios();
+  const [searchParams] = useSearchParams();
+  const highlightAssetId = searchParams.get("asset");
+  const { portfoliosWithAssets, isLoading, refresh } = usePortfolios();
   const { getDividends } = useSecureStorage();
 
   const [dividends, setDividends] = useState<Dividend[]>([]);
@@ -62,6 +64,17 @@ export default function PortfolioDetailPage() {
     if (!portfolioId) return null;
     return portfoliosWithAssets.find((p) => p.id === portfolioId) ?? null;
   }, [portfoliosWithAssets, portfolioId]);
+
+  // Quando vem da busca (?asset=...), rola até a linha do ativo e a destaca brevemente.
+  useEffect(() => {
+    if (!highlightAssetId || !portfolio) return;
+    const el = document.getElementById(`asset-row-${highlightAssetId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-primary");
+    const t = setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 2500);
+    return () => clearTimeout(t);
+  }, [highlightAssetId, portfolio]);
 
   const dividendsByAsset = useMemo(() => {
     const map = new Map<string, number>();
@@ -266,7 +279,8 @@ export default function PortfolioDetailPage() {
                         return (
                           <TableRow
                             key={a.id}
-                            className="cursor-pointer"
+                            id={`asset-row-${a.id}`}
+                            className="cursor-pointer transition-shadow"
                             onClick={() =>
                               navigate(`/transactions?asset=${encodeURIComponent(a.id)}`)
                             }
@@ -344,6 +358,7 @@ export default function PortfolioDetailPage() {
         onOpenChange={(o) => !o && setAssetToMove(null)}
         asset={assetToMove}
         portfolios={portfoliosWithAssets.map((p) => ({ id: p.id, name: p.name }))}
+        onMoved={refresh}
       />
     </DashboardLayout>
   );

@@ -53,7 +53,8 @@ export function SearchCommand() {
     if (type === "portfolio") {
       navigate(`/portfolio/${id}`);
     } else if (type === "asset" && portfolioId) {
-      navigate(`/portfolio/${portfolioId}`);
+      // Leva à carteira e sinaliza o ativo para rolar/destacar na tabela.
+      navigate(`/portfolio/${portfolioId}?asset=${encodeURIComponent(id)}`);
     }
   };
 
