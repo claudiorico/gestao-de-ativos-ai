@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { motion } from "framer-motion";
-import { User, Bell, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle, Tag } from "lucide-react";
+import { User, Bell, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle, Tag, Trash2 } from "lucide-react";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -92,6 +92,9 @@ export default function Settings() {
     getAssets,
     saveAsset,
     saveAssetsBulk,
+    deleteAssetsBulk,
+    getTransactions,
+    getDividends,
     notifyDataChange,
   } = useSecureStorage();
   const { user } = useAuthUser();
@@ -146,6 +149,7 @@ export default function Settings() {
   const [isSettingsReady, setIsSettingsReady] = useState(false);
   const [isStandardizingTickers, setIsStandardizingTickers] = useState(false);
   const [isBackfillingNames, setIsBackfillingNames] = useState(false);
+  const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -651,6 +655,49 @@ export default function Settings() {
     }
   };
 
+  // Remove ativos órfãos (sem nenhuma transação nem provento) — sobras de importações
+  // que falharam no meio (criaram o ativo mas não gravaram as transações).
+  const handleRemoveOrphanAssets = async () => {
+    const ok = window.confirm(
+      "Remover ativos que não têm NENHUMA transação nem provento?\n\n" +
+        "São sobras de importações que falharam (ex.: o ativo apareceu mas sem histórico). " +
+        "Depois disso, reimporte os arquivos para recriar tudo corretamente."
+    );
+    if (!ok) return;
+
+    setIsCleaningOrphans(true);
+    try {
+      const [assets, txs, divs] = await Promise.all([
+        getAssets(),
+        getTransactions(),
+        getDividends(),
+      ]);
+
+      const usedAssetIds = new Set<string>();
+      for (const t of txs) usedAssetIds.add(t.assetId);
+      for (const d of divs) usedAssetIds.add(d.assetId);
+
+      const orphanIds = assets.filter((a) => !usedAssetIds.has(a.id)).map((a) => a.id);
+
+      if (orphanIds.length === 0) {
+        toast({ title: "Nenhum ativo órfão", description: "Todos os ativos têm transações ou proventos." });
+        return;
+      }
+
+      await deleteAssetsBulk(orphanIds);
+
+      toast({
+        title: "Ativos órfãos removidos",
+        description: `${orphanIds.length} ativo(s) sem histórico foram removidos. Agora reimporte os arquivos.`,
+      });
+    } catch (e) {
+      console.error("[Settings] handleRemoveOrphanAssets failed", e);
+      toast({ title: "Falha ao limpar", variant: "destructive" });
+    } finally {
+      setIsCleaningOrphans(false);
+    }
+  };
+
   const renderDataSection = () => (
     <div className="space-y-6">
       {/* Google Drive Section */}
@@ -914,6 +961,26 @@ export default function Settings() {
               <Tag className="h-4 w-4" />
             )}
             Atualizar nomes dos ativos
+          </Button>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            Remove ativos sem nenhuma transação/provento (sobras de importações que falharam).
+            Faça isto se uma importação deu erro e ficaram ativos duplicados/vazios.
+          </p>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleRemoveOrphanAssets}
+            disabled={isCleaningOrphans || isLoading}
+          >
+            {isCleaningOrphans ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            Remover ativos órfãos
           </Button>
         </div>
       </div>

@@ -63,6 +63,7 @@ interface SecureStorageContextType extends SecureStorageState {
   saveAsset: (asset: Asset) => Promise<void>;
   saveAssetsBulk: (assets: Asset[]) => Promise<void>;
   deleteAsset: (id: string) => Promise<void>;
+  deleteAssetsBulk: (ids: string[]) => Promise<void>;
 
   // Transaction operations
   getTransactions: (assetId?: string) => Promise<Transaction[]>;
@@ -341,6 +342,26 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     [encryptionKey, getEncryptedData, notifyDataChange]
   );
 
+  // Remove vários itens de uma vez (lê/encripta/grava uma vez, notifica uma vez).
+  const deleteManyEncryptedData = useCallback(
+    async <T extends { id: string }>(
+      store: 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements',
+      ids: string[]
+    ): Promise<void> => {
+      if (!encryptionKey) throw new Error('Vault is locked');
+      if (!ids.length) return;
+
+      const items = await getEncryptedData<T>(store);
+      const idSet = new Set(ids);
+      const filtered = items.filter((i) => !idSet.has(i.id));
+
+      const encrypted = await encrypt(JSON.stringify(filtered), encryptionKey);
+      await setItem(store, MASTER_DATA_KEY, encrypted);
+      notifyDataChange();
+    },
+    [encryptionKey, getEncryptedData, notifyDataChange]
+  );
+
   const deleteEncryptedData = useCallback(
     async <T extends { id: string }>(
       store: 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements',
@@ -371,6 +392,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
   const saveAsset = useCallback((a: Asset) => saveEncryptedData('assets', a), [saveEncryptedData]);
   const saveAssetsBulk = useCallback((a: Asset[]) => saveManyEncryptedData('assets', a), [saveManyEncryptedData]);
   const deleteAsset = useCallback((id: string) => deleteEncryptedData<Asset>('assets', id), [deleteEncryptedData]);
+  const deleteAssetsBulk = useCallback((ids: string[]) => deleteManyEncryptedData<Asset>('assets', ids), [deleteManyEncryptedData]);
 
   // Transaction operations
   const getTransactions = useCallback(async (assetId?: string): Promise<Transaction[]> => {
@@ -481,6 +503,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     getAssets,
     saveAsset,
     saveAssetsBulk,
+    deleteAssetsBulk,
     deleteAsset,
     getTransactions,
     saveTransaction,
