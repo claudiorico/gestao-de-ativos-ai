@@ -92,7 +92,6 @@ export function useAutoSync() {
       });
       window.dispatchEvent(new Event('gdrive-sync-status-changed'));
 
-      console.log('[AutoSync] Backup completed successfully');
     } catch (error) {
       // Caso clássico: o navegador bloqueou popup / precisa consentimento → só resolve com clique do usuário.
       if (error instanceof GoogleAuthInteractionRequiredError) {
@@ -139,7 +138,6 @@ export function useAutoSync() {
   // Listen to vault data changes and schedule sync automatically
   useEffect(() => {
     const handleDataChange = () => {
-      console.log('[AutoSync] Data change detected, scheduling sync...');
       scheduleSync();
     };
 

@@ -50,7 +50,6 @@ export function setUserNamespace(namespace: string): void {
   const newNamespace = namespace || 'default';
   
   if (newNamespace !== currentNamespace) {
-    console.log('[IndexedDB] Switching namespace to:', newNamespace);
     
     // Close current connection if namespace changes
     if (dbInstance) {
@@ -75,7 +74,6 @@ export function getUserNamespace(): string {
  */
 export async function listUserNamespaces(): Promise<string[]> {
   if (!indexedDB.databases) {
-    console.log('[IndexedDB] databases() not supported');
     return [];
   }
   
@@ -103,13 +101,10 @@ export async function requestPersistentStorage(): Promise<boolean> {
     const isPersisted = await navigator.storage.persisted();
     if (!isPersisted) {
       const granted = await navigator.storage.persist();
-      console.log('[IndexedDB] Persistent storage:', granted ? 'granted' : 'denied');
       return granted;
     }
-    console.log('[IndexedDB] Storage already persistent');
     return true;
   }
-  console.log('[IndexedDB] Persistent storage API not available');
   return false;
 }
 
@@ -150,7 +145,6 @@ export function openDatabase(): Promise<IDBDatabase> {
     // Request persistent storage first
     requestPersistentStorage().catch(console.error);
 
-    console.log('[IndexedDB] Opening database:', dbName, 'version:', DB_VERSION);
     const request = indexedDB.open(dbName, DB_VERSION);
 
     request.onerror = () => {
@@ -161,11 +155,9 @@ export function openDatabase(): Promise<IDBDatabase> {
     request.onsuccess = () => {
       dbInstance = request.result;
       currentDbName = dbName;
-      console.log('[IndexedDB] Database opened successfully:', dbName);
       
       // Handle connection close
       dbInstance.onclose = () => {
-        console.log('[IndexedDB] Database connection closed');
         dbInstance = null;
         currentDbName = null;
       };
@@ -174,13 +166,11 @@ export function openDatabase(): Promise<IDBDatabase> {
     };
 
     request.onupgradeneeded = (event) => {
-      console.log('[IndexedDB] Upgrading database...');
       const db = (event.target as IDBOpenDBRequest).result;
 
       // Create object stores for each data type
       STORES.forEach((storeName) => {
         if (!db.objectStoreNames.contains(storeName)) {
-          console.log('[IndexedDB] Creating store:', storeName);
           db.createObjectStore(storeName, { keyPath: 'id' });
         }
       });

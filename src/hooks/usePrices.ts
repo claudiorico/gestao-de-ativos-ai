@@ -100,7 +100,6 @@ export function usePrices(): UsePricesReturn {
       setError(null);
 
       const batches = chunkArray(tickersToFetch, BACKEND_TICKER_BATCH_SIZE);
-      console.log('Fetching quotes for:', tickersToFetch, { batches: batches.length });
 
       // Update cache and state (normaliza a chave do ticker para bater com lookups em .toUpperCase())
       // Além disso, para ativos negociados no Yahoo (ações/FIIs), também salvamos uma chave alternativa com sufixo ".SA"

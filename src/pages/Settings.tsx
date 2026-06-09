@@ -698,49 +698,6 @@ export default function Settings() {
     }
   };
 
-  // Diagnóstico: mostra, para um ticker, quantos ativos existem com esse código,
-  // quantas transações/proventos cada um tem, em qual carteira, e se há transações órfãs.
-  const handleDiagnoseAsset = async () => {
-    const input = window.prompt("Diagnosticar qual ticker? (ex.: BTHF11)");
-    const ticker = (input || "").trim().toUpperCase();
-    if (!ticker) return;
-
-    try {
-      const [assets, txs, divs] = await Promise.all([
-        getAssets(),
-        getTransactions(),
-        getDividends(),
-      ]);
-
-      const matching = assets.filter((a) => a.ticker.toUpperCase() === ticker);
-      const lines: string[] = [];
-      lines.push(`Ticker ${ticker}: ${matching.length} ativo(s) com esse código.`);
-
-      for (const a of matching) {
-        const t = txs.filter((x) => x.assetId === a.id);
-        const d = divs.filter((x) => x.assetId === a.id);
-        let net = 0;
-        for (const x of t) net += x.type === "buy" ? x.shares : -x.shares;
-        lines.push(
-          `• id ${a.id.slice(0, 8)} | carteira ${a.portfolioId.slice(0, 8)} | nome "${a.name}" | ${t.length} transações | ${d.length} proventos | qtd líquida ${net}`
-        );
-      }
-
-      const assetIds = new Set(assets.map((a) => a.id));
-      const orphanTx = txs.filter((x) => !assetIds.has(x.assetId));
-      lines.push("");
-      lines.push(`Totais no cofre: ${assets.length} ativos, ${txs.length} transações, ${divs.length} proventos.`);
-      lines.push(`Transações órfãs (apontam p/ ativo inexistente): ${orphanTx.length}`);
-
-      const msg = lines.join("\n");
-      console.log("[Diag]\n" + msg);
-      window.alert(msg);
-    } catch (e) {
-      console.error("[Settings] handleDiagnoseAsset failed", e);
-      toast({ title: "Falha no diagnóstico", variant: "destructive" });
-    }
-  };
-
   const renderDataSection = () => (
     <div className="space-y-6">
       {/* Google Drive Section */}
@@ -1027,15 +984,6 @@ export default function Settings() {
           </Button>
         </div>
 
-        <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Diagnóstico: mostra os ativos/transações/proventos de um ticker (ajuda a achar problemas de importação).
-          </p>
-          <Button variant="outline" className="gap-2" onClick={handleDiagnoseAsset}>
-            <AlertTriangle className="h-4 w-4" />
-            Diagnosticar ativo
-          </Button>
-        </div>
       </div>
     </div>
   );

@@ -292,26 +292,6 @@ export default function Balancing() {
         return;
       }
 
-      // Debug
-      console.log("[Balancing] runRebalancing", {
-        mode,
-        amount,
-        assetsCount: allAssets.length,
-        targetsSumPct: Number((totalTarget * 100).toFixed(4)),
-        underTargetPortfolios: [...portfolioUnderTarget].length,
-      });
-      console.table(
-        portfoliosForBalancing.map((p) => {
-          const any = allAssets.find((a) => a.portfolioId === p.id);
-          return {
-            portfolio: p.name,
-            targetPct: Number((any?.portfolioTarget ?? 0).toFixed(2)),
-            currentPct: Number((any?.portfolioCurrent ?? 0).toFixed(2)),
-            underTarget: portfolioUnderTarget.has(p.id),
-          };
-        })
-      );
-
       const result = rebalanceAssets({
         assets: engineAssets,
         availableCash: amount,
@@ -325,12 +305,6 @@ export default function Balancing() {
         },
         { BUY: 0, SELL: 0, HOLD: 0 } as Record<SuggestionAction, number>
       );
-
-      console.log("[Balancing] result", {
-        remainingCash: result.remainingCash,
-        summary,
-        suggestions: result.suggestions.filter((s) => s.action !== "HOLD"),
-      });
 
       toast({
         title: "Balanceamento calculado",

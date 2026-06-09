@@ -262,7 +262,6 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
 
       let rawRows: any[][] = [];
       let detected: { type: FileType; index: number; headers: string[] } = { type: null, index: -1, headers: [] };
-      let detectedSheet: string | number | null = null;
 
       if (isCsv) {
         rawRows = await parseCsvToRows(file);
@@ -279,14 +278,12 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
           if (d.type && d.index >= 0) {
             rawRows = rows;
             detected = d;
-            detectedSheet = s.name;
             break;
           }
 
-          // fallback: se ainda não achou nada, pelo menos mantemos a 1ª aba pra debug
+          // fallback: se ainda não achou nada, pelo menos mantemos a 1ª aba
           if (!rawRows.length) {
             rawRows = rows;
-            detectedSheet = s.name;
           }
         }
       }
@@ -307,21 +304,6 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
             "Envie um arquivo exportado da B3 (XLSX ou CSV). Se possível, exporte as abas de Negociação/Movimentação.",
           variant: "destructive",
         });
-
-        // Ajuda a depurar rapidamente variações do arquivo (e também detectar se o arquivo tem múltiplas abas)
-        console.warn("[B3Import] Could not detect headers.");
-        if (detectedSheet != null) console.warn("[B3Import] sheet used:", detectedSheet);
-        console.warn("[B3Import] First non-empty rows (raw):");
-
-        let printed = 0;
-        for (let i = 0; i < Math.min(rawRows.length, 200) && printed < 15; i++) {
-          const r = rawRows[i];
-          if (!Array.isArray(r)) continue;
-          if (!r.some((c) => String(c ?? "").trim().length > 0)) continue;
-          console.warn(`[B3Import] row ${i} raw:`, r);
-          console.warn(`[B3Import] row ${i} normalized:`, r.map(normalizeHeader));
-          printed++;
-        }
         return;
       }
 

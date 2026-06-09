@@ -92,33 +92,18 @@ export function AssetFormDialog({
 
       setIsLoadingName(true);
       try {
-        console.log('[CVM][UI] consultando nome para', { type, input: tickerValue, upper });
-
         const { data, error } = await invokeBackendFunction<{ quotes?: Array<{ name?: string; error?: string }>; error?: string }>(
           'get-quotes',
           { body: { tickers: [upper] } }
         );
 
-        console.log('[CVM][UI] resposta get-quotes', { error, data });
-
         if (!error && data?.quotes?.[0]) {
           const result = data.quotes[0];
-          console.log('[CVM][UI] quote[0]', result);
 
           // Para Fundo CVM, queremos ao menos preencher o nome mesmo que ainda não haja cota.
           if (type === 'investment_fund') {
-            if (result.error) {
-              console.warn('[CVM][UI] fundo retornou erro', result.error);
-            }
-
             const candidate = (result.name ?? '').trim();
             const isFallback = /^Fundo\s/i.test(candidate);
-
-            console.log('[CVM][UI] nome recebido', {
-              candidate,
-              isFallback,
-              sameAsCnpj: candidate === upper,
-            });
 
             // Só auto-preenche quando realmente temos um nome "humano" do fundo.
             // Se a API devolveu o fallback "Fundo <CNPJ>", mantemos em branco para o usuário preencher.
@@ -136,8 +121,8 @@ export function AssetFormDialog({
           }
         }
         // If API fails or returns error, just let user fill name manually
-      } catch (err) {
-        console.log('Could not auto-fill asset name:', err);
+      } catch {
+        // Falha ao consultar nome — usuário preenche manualmente.
       } finally {
         setIsLoadingName(false);
       }
