@@ -666,10 +666,20 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     const newCash: CashMovement[] = [];
 
     // De-dup against existing vault entries and within this import batch.
-    const [existingDividends, existingCash] = await Promise.all([
+    // Also load all transactions to calculate shares held on each payment date.
+    const [existingDividends, existingCash, allTxs] = await Promise.all([
       getDividends(),
       getCashMovements(),
+      getTransactions(),
     ]);
+
+    // assetId → transactions sorted by date; used to compute holding qty at provento date.
+    const txsByAsset = new Map<string, Transaction[]>();
+    for (const tx of allTxs) {
+      const list = txsByAsset.get(tx.assetId) ?? [];
+      list.push(tx);
+      txsByAsset.set(tx.assetId, list);
+    }
     const existingKeys = new Set<string>();
     for (const d of existingDividends) {
       existingKeys.add(
@@ -741,13 +751,28 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         }
         batchKeys.add(dedupKey);
 
+        // If the B3 report already has the quantity, use it; otherwise derive from
+        // the transaction history: sum all buys minus sells up to paymentDate.
+        let sharesOnDate = row.quantity > 0 ? row.quantity : 0;
+        if (sharesOnDate === 0) {
+          const assetTxs = txsByAsset.get(asset.id) ?? [];
+          for (const tx of assetTxs) {
+            if (tx.date <= paymentDate) {
+              sharesOnDate += tx.type === "buy" ? tx.shares : -tx.shares;
+            }
+          }
+          sharesOnDate = Math.max(0, Math.round(sharesOnDate * 1e8) / 1e8);
+        }
+        const valuePerShare =
+          sharesOnDate > 0 ? row.value / sharesOnDate : row.pricePerShare;
+
         newDividends.push({
           id: crypto.randomUUID(),
           assetId: asset.id,
           portfolioId: asset.portfolioId,
           type,
-          valuePerShare: row.pricePerShare,
-          shares: row.quantity,
+          valuePerShare,
+          shares: sharesOnDate,
           grossValue: row.value,
           taxWithheld: 0,
           totalValue: row.value,

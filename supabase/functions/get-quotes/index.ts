@@ -238,6 +238,13 @@ async function fetchYahooQuote(ticker: string): Promise<QuoteResponse | null> {
   }
 }
 
+// Strip trading-pair suffixes from crypto tickers (BTCUSD → BTC, ETHUSD → ETH).
+// The original ticker is preserved in the response so the app can match it.
+function stripCryptoPairSuffix(ticker: string): string {
+  const stripped = ticker.toUpperCase().replace(/(?:USDT|USDC|USD|BRL|EUR|BTC|ETH)$/, '');
+  return stripped.length > 0 ? stripped : ticker.toUpperCase();
+}
+
 // Fetch from CoinGecko for crypto
 async function fetchCoinGeckoQuote(ticker: string): Promise<QuoteResponse | null> {
   try {
@@ -267,7 +274,9 @@ async function fetchCoinGeckoQuote(ticker: string): Promise<QuoteResponse | null
       'HYPE': 'hyperliquid',
     };
 
-    const upper = ticker.toUpperCase();
+    // Strip pair suffix for lookup but keep original ticker for the response
+    const originalUpper = ticker.toUpperCase();
+    const upper = stripCryptoPairSuffix(originalUpper);
 
     let coinId = cryptoMap[upper];
 
@@ -308,7 +317,7 @@ async function fetchCoinGeckoQuote(ticker: string): Promise<QuoteResponse | null
     const changePercent = data.market_data?.price_change_percentage_24h || 0;
 
     return {
-      ticker: upper,
+      ticker: originalUpper, // devolve o ticker original (ex: BTCUSD) para o app conseguir o match
       price: price,
       change: change24h,
       changePercent: changePercent,

@@ -95,6 +95,7 @@ export default function Settings() {
     deleteAssetsBulk,
     getTransactions,
     getDividends,
+    saveDividendsBulk,
     notifyDataChange,
   } = useSecureStorage();
   const { user } = useAuthUser();
@@ -150,6 +151,7 @@ export default function Settings() {
   const [isStandardizingTickers, setIsStandardizingTickers] = useState(false);
   const [isBackfillingNames, setIsBackfillingNames] = useState(false);
   const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
+  const [isBackfillingShares, setIsBackfillingShares] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -698,6 +700,65 @@ export default function Settings() {
     }
   };
 
+  // Recalcula shares e valuePerShare de proventos importados com shares = 0,
+  // usando o histórico de transações até a data do pagamento.
+  const handleBackfillDividendShares = async () => {
+    if (!isUnlocked) {
+      toast({ title: "Cofre bloqueado", variant: "destructive" });
+      return;
+    }
+    setIsBackfillingShares(true);
+    try {
+      const [dividends, transactions] = await Promise.all([
+        getDividends(),
+        getTransactions(),
+      ]);
+
+      // Build assetId -> sorted transactions map
+      const txsByAsset = new Map<string, typeof transactions>();
+      for (const tx of transactions) {
+        const list = txsByAsset.get(tx.assetId) ?? [];
+        list.push(tx);
+        txsByAsset.set(tx.assetId, list);
+      }
+
+      const toUpdate: typeof dividends = [];
+      for (const div of dividends) {
+        if (div.shares > 0) continue; // already has shares
+
+        const assetTxs = txsByAsset.get(div.assetId) ?? [];
+        let sharesOnDate = 0;
+        for (const tx of assetTxs) {
+          if (tx.date <= div.paymentDate) {
+            sharesOnDate += tx.type === "buy" ? tx.shares : -tx.shares;
+          }
+        }
+        sharesOnDate = Math.max(0, Math.round(sharesOnDate * 1e8) / 1e8);
+        if (sharesOnDate === 0) continue; // no transaction history for this asset
+
+        const valuePerShare =
+          sharesOnDate > 0 ? div.totalValue / sharesOnDate : 0;
+        toUpdate.push({ ...div, shares: sharesOnDate, valuePerShare });
+      }
+
+      if (toUpdate.length === 0) {
+        toast({ title: "Nenhum provento precisava de ajuste" });
+        return;
+      }
+
+      await saveDividendsBulk(toUpdate);
+      toast({
+        title: "Cotas recalculadas",
+        description: `${toUpdate.length} provento(s) atualizados com a quantidade de cotas na data do pagamento.`,
+      });
+    } catch (e) {
+      console.error("[Settings] handleBackfillDividendShares failed", e);
+      toast({ title: "Falha ao recalcular cotas", variant: "destructive" });
+    } finally {
+      setIsBackfillingShares(false);
+    }
+  };
+
   const renderDataSection = () => (
     <div className="space-y-6">
       {/* Google Drive Section */}
@@ -981,6 +1042,28 @@ export default function Settings() {
               <Trash2 className="h-4 w-4" />
             )}
             Remover ativos órfãos
+          </Button>
+        </div>
+
+        <div className="pt-4 border-t border-border/50 space-y-2">
+          <p className="text-sm font-medium text-foreground">Recalcular cotas dos proventos</p>
+          <p className="text-xs text-muted-foreground">
+            Preenche a quantidade de cotas e o valor por cota nos proventos importados sem essa informação,
+            usando o histórico de transações na data de cada pagamento.
+            Execute após importar as negociações.
+          </p>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleBackfillDividendShares}
+            disabled={isBackfillingShares || isLoading}
+          >
+            {isBackfillingShares ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Recalcular cotas dos proventos
           </Button>
         </div>
 
