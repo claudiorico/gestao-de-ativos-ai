@@ -150,6 +150,7 @@ interface B3ImportTabProps {
 export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   const { toast } = useToast();
   const {
+    getAssets,
     saveAssetsBulk,
     saveTransactionsBulk,
     saveDividendsBulk,
@@ -159,7 +160,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     getCashMovements,
   } = useSecureStorage();
   const { portfolios } = usePortfolios();
-  const { assets, refresh: refreshAssets } = useAssets();
+  const { refresh: refreshAssets } = useAssets();
 
   const [fileType, setFileType] = useState<FileType>(null);
   const [negociacaoRows, setNegociacaoRows] = useState<NegociacaoRow[]>([]);
@@ -475,16 +476,20 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     }
   };
 
-  const assetsByTicker = useMemo(() => {
+  // Monta o índice ticker -> ativos lendo SEMPRE do cofre (fresco), e não de um estado
+  // em memória que pode estar desatualizado (ex.: após remover órfãos). Evita pular
+  // ativos achando que existem duplicados que já foram apagados.
+  const buildAssetMap = async (): Promise<Map<string, Asset[]>> => {
+    const all = await getAssets();
     const map = new Map<string, Asset[]>();
-    for (const a of assets) {
+    for (const a of all) {
       const t = a.ticker.toUpperCase();
       const list = map.get(t) ?? [];
       list.push(a);
       map.set(t, list);
     }
     return map;
-  }, [assets]);
+  };
 
   const tickerSchema = useMemo(
     () => z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,15}$/, "Ticker inválido"),
@@ -522,16 +527,10 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   ): Asset | null => {
     const existing = localMap.get(ticker) ?? [];
 
-    if (existing.length === 1) return existing[0];
-
-    if (existing.length > 1) {
-      toast({
-        title: `Ticker ${ticker} existe em mais de um portfólio`,
-        description: "Abra o ativo e padronize em apenas um portfólio, ou importe manualmente.",
-        variant: "destructive",
-      });
-      return null;
-    }
+    // Se já existe (1 ou mais), reutiliza o primeiro — não bloqueia a importação por
+    // duplicidade. Assim, mesmo que tenha sobrado um ativo duplicado de tentativas
+    // anteriores, as transações entram normalmente.
+    if (existing.length >= 1) return existing[0];
 
     if (!autoCreateMissingAssets) return null;
 
@@ -569,19 +568,20 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     setIsImporting(true);
 
     try {
+      let summary = "";
       if (fileType === "negociacao") {
-        await importNegociacoes();
+        summary = await importNegociacoes();
       } else if (fileType === "movimentacao") {
-        await importMovimentacoes();
+        summary = await importMovimentacoes();
       } else if (fileType === "fundos") {
-        await importFundos();
+        summary = await importFundos();
       }
 
       // Recarrega os ativos para que uma próxima importação na sequência enxergue
       // os que acabamos de criar (evita duplicar ativos entre arquivos).
       await refreshAssets();
 
-      toast({ title: "Importação concluída com sucesso!" });
+      toast({ title: "Importação concluída com sucesso!", description: summary });
       setFileType(null);
       setNegociacaoRows([]);
       setMovimentacaoRows([]);
@@ -598,7 +598,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
 
   const importNegociacoes = async () => {
     const selected = negociacaoRows.filter((r) => r.selected);
-    const localAssetByTicker = new Map(assetsByTicker);
+    const localAssetByTicker = await buildAssetMap();
     const newAssets: Asset[] = [];
     const newTransactions: Transaction[] = [];
 
@@ -661,24 +661,14 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     await saveAssetsBulk(newAssets);
     await saveTransactionsBulk(newTransactions);
 
-    if (invalidTickers > 0) {
-      toast({
-        title: "Linhas ignoradas",
-        description: `${invalidTickers} linha(s) com ticker inválido foram ignoradas.`,
-        variant: "destructive",
-      });
-    }
-    if (skippedDuplicates > 0) {
-      toast({
-        title: "Duplicidades ignoradas",
-        description: `${skippedDuplicates} movimentaç${skippedDuplicates === 1 ? "ão" : "ões"} já existiam e não foram importadas.`,
-      });
-    }
+    return `${newAssets.length} ativos novos, ${newTransactions.length} transações${
+      skippedDuplicates ? `, ${skippedDuplicates} duplicadas ignoradas` : ""
+    }${invalidTickers ? `, ${invalidTickers} inválidas` : ""}.`;
   };
 
   const importMovimentacoes = async () => {
     const selected = movimentacaoRows.filter((r) => r.selected);
-    const localAssetByTicker = new Map(assetsByTicker);
+    const localAssetByTicker = await buildAssetMap();
     const newAssets: Asset[] = [];
     const newDividends: Dividend[] = [];
     const newCash: CashMovement[] = [];
@@ -841,17 +831,14 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     await saveDividendsBulk(newDividends);
     await saveCashMovementsBulk(newCash);
 
-    if (skippedDuplicates > 0) {
-      toast({
-        title: "Duplicidades ignoradas",
-        description: `${skippedDuplicates} movimentaç${skippedDuplicates === 1 ? "ão" : "ões"} já existiam e não foram importadas.`,
-      });
-    }
+    return `${newAssets.length} ativos novos, ${newDividends.length} proventos, ${newCash.length} em caixa${
+      skippedDuplicates ? `, ${skippedDuplicates} duplicadas ignoradas` : ""
+    }.`;
   };
 
   const importFundos = async () => {
     const selected = fundoRows.filter((r) => r.selected);
-    const localAssetByTicker = new Map(assetsByTicker);
+    const localAssetByTicker = await buildAssetMap();
     const newAssets: Asset[] = [];
     const newTransactions: Transaction[] = [];
     let invalidAssets = 0;
@@ -918,19 +905,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     await saveAssetsBulk(newAssets);
     await saveTransactionsBulk(newTransactions);
 
-    if (invalidAssets > 0) {
-      toast({
-        title: "Linhas ignoradas",
-        description: `${invalidAssets} linha(s) sem identificador de ativo foram ignoradas.`,
-        variant: "destructive",
-      });
-    }
-    if (skippedDuplicates > 0) {
-      toast({
-        title: "Duplicidades ignoradas",
-        description: `${skippedDuplicates} movimentaç${skippedDuplicates === 1 ? "ão" : "ões"} já existiam e não foram importadas.`,
-      });
-    }
+    return `${newAssets.length} ativos novos, ${newTransactions.length} transações${
+      skippedDuplicates ? `, ${skippedDuplicates} duplicadas ignoradas` : ""
+    }${invalidAssets ? `, ${invalidAssets} inválidas` : ""}.`;
   };
 
   const formatCurrency = (value: number) =>
