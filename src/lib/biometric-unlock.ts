@@ -10,7 +10,7 @@
  * O blob guardado é inútil sem a biometria daquele dispositivo. A senha continua como fallback.
  */
 
-import { encrypt, decrypt } from "@/lib/crypto";
+import { encrypt, decrypt, saltToBase64, base64ToSalt } from "@/lib/crypto";
 
 interface BioBlob {
   credentialId: string; // base64 do rawId
@@ -21,20 +21,10 @@ interface BioBlob {
 
 const keyFor = (namespace: string) => `investpro_biometric_${namespace || "default"}`;
 
-function bufToB64(buf: ArrayBuffer | Uint8Array): string {
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s);
-}
-
-function b64ToBytes(b64: string): Uint8Array {
-  return new Uint8Array(
-    atob(b64)
-      .split("")
-      .map((c) => c.charCodeAt(0))
-  );
-}
+// Reaproveita os conversores base64 de crypto.ts (chunked, seguros para arrays grandes).
+const bufToB64 = (buf: ArrayBuffer | Uint8Array): string =>
+  saltToBase64(buf instanceof Uint8Array ? buf : new Uint8Array(buf));
+const b64ToBytes = (b64: string): Uint8Array => base64ToSalt(b64);
 
 /** O dispositivo/navegador tem um autenticador de plataforma (biometria) disponível? */
 export async function isBiometricSupported(): Promise<boolean> {

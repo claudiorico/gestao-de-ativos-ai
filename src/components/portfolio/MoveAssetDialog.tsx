@@ -50,6 +50,7 @@ export function MoveAssetDialog({
     saveAssetsBulk,
     saveTransactionsBulk,
     saveDividendsBulk,
+    deleteAssetsBulk,
   } = useSecureStorage();
 
   const [targetId, setTargetId] = useState<string>("");
@@ -70,23 +71,53 @@ export function MoveAssetDialog({
         return;
       }
 
-      const now = Date.now();
-      await saveAssetsBulk([{ ...raw, portfolioId: targetId, updatedAt: now }]);
+      // Se a carteira de destino já tem o mesmo ticker, consolida no ativo existente
+      // (reatribui transações/proventos a ele e remove o ativo movido) em vez de duplicar.
+      const existingTarget = assets.find(
+        (a) =>
+          a.id !== raw.id &&
+          a.portfolioId === targetId &&
+          a.ticker.toUpperCase() === raw.ticker.toUpperCase()
+      );
 
-      // Reatribui transações e proventos do ativo para a nova carteira (consistência/IR).
-      const txs = await getTransactions(asset.id);
-      if (txs.length) {
-        await saveTransactionsBulk(txs.map((t) => ({ ...t, portfolioId: targetId })));
-      }
-      const divs = await getDividends(asset.id);
-      if (divs.length) {
-        await saveDividendsBulk(divs.map((d) => ({ ...d, portfolioId: targetId })));
+      const now = Date.now();
+      const destAssetId = existingTarget ? existingTarget.id : raw.id;
+
+      if (existingTarget) {
+        // Move transações/proventos para o ativo existente do destino e apaga o duplicado.
+        const txs = await getTransactions(asset.id);
+        if (txs.length) {
+          await saveTransactionsBulk(
+            txs.map((t) => ({ ...t, assetId: destAssetId, portfolioId: targetId }))
+          );
+        }
+        const divs = await getDividends(asset.id);
+        if (divs.length) {
+          await saveDividendsBulk(
+            divs.map((d) => ({ ...d, assetId: destAssetId, portfolioId: targetId }))
+          );
+        }
+        await deleteAssetsBulk([raw.id]);
+      } else {
+        // Sem conflito: move o próprio ativo e reatribui o portfólio das transações/proventos.
+        await saveAssetsBulk([{ ...raw, portfolioId: targetId, updatedAt: now }]);
+
+        const txs = await getTransactions(asset.id);
+        if (txs.length) {
+          await saveTransactionsBulk(txs.map((t) => ({ ...t, portfolioId: targetId })));
+        }
+        const divs = await getDividends(asset.id);
+        if (divs.length) {
+          await saveDividendsBulk(divs.map((d) => ({ ...d, portfolioId: targetId })));
+        }
       }
 
       const targetName = portfolios.find((p) => p.id === targetId)?.name ?? "outra carteira";
       toast({
-        title: "Ativo movido",
-        description: `${asset.ticker} foi movido para “${targetName}” (com transações e proventos).`,
+        title: existingTarget ? "Ativo consolidado" : "Ativo movido",
+        description: existingTarget
+          ? `${asset.ticker} foi unido ao ativo já existente em “${targetName}”.`
+          : `${asset.ticker} foi movido para “${targetName}” (com transações e proventos).`,
       });
 
       setTargetId("");

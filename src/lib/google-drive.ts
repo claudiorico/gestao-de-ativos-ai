@@ -291,13 +291,18 @@ export async function initiateGoogleAuth(clientId: string): Promise<string> {
 /**
  * Upload encrypted backup to Google Drive AppData folder
  */
-export async function uploadToGoogleDrive(encryptedData: string): Promise<void> {
+export async function uploadToGoogleDrive(
+  encryptedData: string,
+  opts?: { allowInteractive?: boolean }
+): Promise<void> {
   const config = getGoogleDriveConfig();
   if (!config?.clientId) {
     throw new Error("Google Drive não configurado");
   }
 
-  const accessToken = await getValidAccessToken(config.clientId);
+  const accessToken = await getValidAccessToken(config.clientId, {
+    allowInteractive: opts?.allowInteractive ?? false,
+  });
 
   // Create backup payload with proper structure (same format as manual backup)
   const backupPayload = createBackupPayload(encryptedData);
@@ -338,13 +343,17 @@ export async function uploadToGoogleDrive(encryptedData: string): Promise<void> 
 /**
  * Download encrypted backup from Google Drive
  */
-export async function downloadFromGoogleDrive(): Promise<string | null> {
+export async function downloadFromGoogleDrive(
+  opts?: { allowInteractive?: boolean }
+): Promise<string | null> {
   const config = getGoogleDriveConfig();
   if (!config?.clientId) {
     throw new Error("Google Drive não configurado");
   }
 
-  const accessToken = await getValidAccessToken(config.clientId);
+  const accessToken = await getValidAccessToken(config.clientId, {
+    allowInteractive: opts?.allowInteractive ?? false,
+  });
 
   const fileId = await findBackupFile(accessToken);
   if (!fileId) {

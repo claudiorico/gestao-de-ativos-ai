@@ -190,7 +190,7 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
   const handleSyncFromCloud = async () => {
     setIsLoading(true);
     try {
-      const cloudData = await downloadFromGoogleDrive();
+      const cloudData = await downloadFromGoogleDrive({ allowInteractive: true });
 
       if (cloudData) {
         await importEncryptedBackup(cloudData);
@@ -243,7 +243,7 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
       }
 
       const data = await exportEncryptedBackup();
-      await uploadToGoogleDrive(data);
+      await uploadToGoogleDrive(data, { allowInteractive: true });
 
       updateSyncStatus({
         lastSyncAt: Date.now(),

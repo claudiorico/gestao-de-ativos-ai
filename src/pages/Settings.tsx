@@ -224,7 +224,7 @@ export default function Settings() {
       }
 
       const encryptedData = await exportEncryptedBackup();
-      await uploadToGoogleDrive(encryptedData);
+      await uploadToGoogleDrive(encryptedData, { allowInteractive: true });
 
       updateSyncStatus({
         lastSyncAt: Date.now(),
@@ -428,7 +428,7 @@ export default function Settings() {
   const handleSyncFromCloud = async () => {
     setIsLoading(true);
     try {
-      const cloudData = await downloadFromGoogleDrive();
+      const cloudData = await downloadFromGoogleDrive({ allowInteractive: true });
 
       if (cloudData) {
         await importEncryptedBackup(cloudData);
@@ -488,7 +488,7 @@ export default function Settings() {
       }
 
       const data = await exportEncryptedBackup();
-      await uploadToGoogleDrive(data);
+      await uploadToGoogleDrive(data, { allowInteractive: true });
 
       updateSyncStatus({
         lastSyncAt: Date.now(),
@@ -610,7 +610,7 @@ export default function Settings() {
         return;
       }
 
-      const BATCH = 15;
+      const BATCH = 20; // alinhado ao limite por requisição da edge function get-quotes
       const nameByTicker = new Map<string, string>();
       for (let i = 0; i < candidates.length; i += BATCH) {
         const tickers = candidates.slice(i, i + BATCH).map((a) => a.ticker.toUpperCase());
