@@ -245,7 +245,11 @@ export default function Transactions() {
     return fromUrl && isMovementCategory(fromUrl) ? fromUrl : "all";
   });
   const [yearFilter, setYearFilter] = useState<string>(() => {
-    return searchParams.get("year") ?? String(currentYear);
+    // If arriving with a pre-selected asset (e.g. from portfolio view), show all years
+    // so the user sees the full history for that asset
+    if (searchParams.get("year")) return searchParams.get("year")!;
+    if (searchParams.get("asset")) return "all";
+    return String(currentYear);
   });
 
   // Sync filters <-> URL
