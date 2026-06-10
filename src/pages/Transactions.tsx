@@ -245,9 +245,8 @@ export default function Transactions() {
     return fromUrl && isMovementCategory(fromUrl) ? fromUrl : "all";
   });
   const [yearFilter, setYearFilter] = useState<string>(() => {
-    // If arriving with a pre-selected asset (e.g. from portfolio view), show all years
-    // so the user sees the full history for that asset
-    if (searchParams.get("year")) return searchParams.get("year")!;
+    const urlYear = searchParams.get("year");
+    if (urlYear) return urlYear;
     if (searchParams.get("asset")) return "all";
     return String(currentYear);
   });
@@ -256,7 +255,10 @@ export default function Transactions() {
   useEffect(() => {
     const nextAsset = searchParams.get("asset") ?? "all";
     const nextCat = searchParams.get("category");
-    const nextYear = searchParams.get("year") ?? String(currentYear);
+    const urlYear = searchParams.get("year");
+    // When arriving with a specific asset but no explicit year (e.g. from portfolio
+    // detail), default to "all" years so the full history is visible.
+    const nextYear = urlYear ?? (nextAsset !== "all" ? "all" : String(currentYear));
     if (nextAsset !== assetFilter) setAssetFilter(nextAsset);
     if (nextCat && isMovementCategory(nextCat) && nextCat !== categoryFilter) setCategoryFilter(nextCat);
     if (nextYear !== yearFilter) setYearFilter(nextYear);
