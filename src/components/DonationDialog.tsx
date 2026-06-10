@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Copy, Check, Heart, Mail } from "lucide-react";
+import { Copy, Check, Heart, Mail, Shield } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -81,7 +82,7 @@ export function DonationDialog() {
           </TabsContent>
         </Tabs>
 
-        <div className="pt-3 border-t border-border/50">
+        <div className="pt-3 border-t border-border/50 space-y-2">
           <a
             href={`mailto:${SUPPORT_EMAIL}?subject=InvestPro Vault - Suporte`}
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -89,6 +90,13 @@ export function DonationDialog() {
             <Mail className="h-4 w-4 shrink-0" />
             {SUPPORT_EMAIL}
           </a>
+          <Link
+            to="/privacy"
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Shield className="h-4 w-4 shrink-0" />
+            Política de privacidade
+          </Link>
         </div>
       </DialogContent>
     </Dialog>

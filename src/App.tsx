@@ -19,6 +19,7 @@ import Dividends from "./pages/Dividends";
 import Taxes from "./pages/Taxes";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
+import Privacy from "./pages/Privacy";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -47,8 +48,9 @@ function AppContent() {
       <Toaster />
       <Sonner />
         <Routes>
-          {/* Auth helper screens (must be reachable without login) */}
+          {/* Public pages (no login required) */}
           <Route path="/auth/diagnostico" element={<AuthDiagnostics />} />
+          <Route path="/privacy" element={<Privacy />} />
 
           {/* Everything requires: 1) Google login 2) Vault unlock */}
           <Route element={<ProtectedLayout />}>
