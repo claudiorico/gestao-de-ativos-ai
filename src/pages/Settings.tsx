@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { motion } from "framer-motion";
 import { User, Bell, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle, Tag, Trash2 } from "lucide-react";
+import { DonationDialog } from "@/components/DonationDialog";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -1115,6 +1116,10 @@ export default function Settings() {
           <p className="text-xs text-muted-foreground">
             Usado para cálculos de imposto de renda
           </p>
+        </div>
+
+        <div className="pt-2 border-t border-border/50">
+          <DonationDialog />
         </div>
       </div>
     </div>

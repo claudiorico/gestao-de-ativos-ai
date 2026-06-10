@@ -75,7 +75,43 @@ function parseDateBR(dateStr: string): number {
   return new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
 }
 
+// Converts B3 Tesouro Direto product names to TD: ticker format.
+// Infers maturity month/day from bond type:
+//   NTN-B Principal (IPCA+ sem juros) → May 15
+//   NTN-B (IPCA+ com juros)           → Aug 15
+//   LTN / NTN-F (Prefixado)           → Jan 1
+//   Tesouro Selic                      → alphanum ticker (no price lookup support)
+function extractTesouroTicker(productName: string): string | null {
+  if (!/^Tesouro\s/i.test(String(productName ?? "").trim())) return null;
+
+  const yearMatch = productName.match(/\b(20\d{2})\b/);
+  const year = yearMatch ? yearMatch[1] : "";
+  const hasJuros = /juros\s+semestrais/i.test(productName);
+
+  if (/IPCA/i.test(productName)) {
+    const mmdd = hasJuros ? "08-15" : "05-15";
+    const base = year ? `TD:IPCA${year}-${mmdd}` : "TD:IPCA";
+    return hasJuros ? `${base}:JUROS` : base;
+  }
+  if (/Prefixado/i.test(productName)) {
+    const base = year ? `TD:PRE${year}-01-01` : "TD:PRE";
+    return hasJuros ? `${base}:JUROS` : base;
+  }
+  if (/Selic/i.test(productName)) {
+    return year ? `TDSELIC${year}` : "TDSELIC";
+  }
+
+  const slug = productName
+    .replace(/^Tesouro\s+/i, "")
+    .replace(/[^A-Z0-9]/gi, "")
+    .slice(0, 10)
+    .toUpperCase();
+  return `TD${slug || "TESOURO"}`;
+}
+
 function extractTicker(productName: string): string {
+  const td = extractTesouroTicker(productName);
+  if (td) return td;
   // "BTHF11 - BTG PACTUAL..." -> "BTHF11"
   const match = productName.match(/^([A-Z0-9]+)/);
   return match ? match[1] : productName.slice(0, 10);
@@ -662,6 +698,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     const selected = movimentacaoRows.filter((r) => r.selected);
     const localAssetByTicker = await buildAssetMap();
     const newAssets: Asset[] = [];
+    const newTransactions: Transaction[] = [];
     const newDividends: Dividend[] = [];
     const newCash: CashMovement[] = [];
 
@@ -701,12 +738,93 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         })
       );
     }
+    for (const tx of allTxs) {
+      existingKeys.add(
+        buildImportDedupKey({
+          scope: `tx:${tx.assetId}:${tx.type}`,
+          date: tx.date,
+          quantity: tx.shares,
+          value: tx.totalValue,
+        })
+      );
+    }
 
     const batchKeys = new Set<string>();
     let skippedDuplicates = 0;
 
     for (const row of selected) {
       const movType = row.movementType.toLowerCase();
+
+      // --- Tesouro Direto: compra/venda/rendimento detectados pelo nome do produto ---
+      const tdTicker = extractTesouroTicker(row.productName);
+      if (tdTicker) {
+        const asset = resolveOrStageAsset(
+          localAssetByTicker,
+          newAssets,
+          tdTicker,
+          row.productName,
+          "fixed_income"
+        );
+        if (!asset) continue;
+
+        const date = parseDateBR(row.date);
+
+        const isCompra = movType.includes("compra") || movType.includes("transferência");
+        const isVenda = movType.includes("venda") || movType.includes("resgate");
+        const isRendimento = movType.includes("rendimento");
+
+        if (isCompra || isVenda) {
+          const txType = isCompra ? "buy" : "sell";
+          const qty = row.quantity > 0 ? row.quantity : 1;
+          const ppu = row.pricePerShare > 0 ? row.pricePerShare : row.value / qty;
+          const dedupKey = buildImportDedupKey({
+            scope: `tx:${asset.id}:${txType}`,
+            date,
+            quantity: qty,
+            value: row.value,
+          });
+          if (existingKeys.has(dedupKey) || batchKeys.has(dedupKey)) { skippedDuplicates++; continue; }
+          batchKeys.add(dedupKey);
+          newTransactions.push({
+            id: crypto.randomUUID(),
+            assetId: asset.id,
+            portfolioId: asset.portfolioId,
+            type: txType,
+            shares: qty,
+            pricePerShare: ppu,
+            fees: 0,
+            totalValue: row.value,
+            date,
+            notes: `Importado B3 • ${row.movementType}`,
+            createdAt: Date.now(),
+          });
+        } else if (isRendimento) {
+          const dedupKey = buildImportDedupKey({
+            scope: `div:${asset.id}:yield`,
+            date,
+            quantity: row.quantity,
+            value: row.value,
+          });
+          if (existingKeys.has(dedupKey) || batchKeys.has(dedupKey)) { skippedDuplicates++; continue; }
+          batchKeys.add(dedupKey);
+          const qty = row.quantity > 0 ? row.quantity : 0;
+          newDividends.push({
+            id: crypto.randomUUID(),
+            assetId: asset.id,
+            portfolioId: asset.portfolioId,
+            type: "yield",
+            valuePerShare: qty > 0 ? row.value / qty : row.value,
+            shares: qty,
+            grossValue: row.value,
+            taxWithheld: 0,
+            totalValue: row.value,
+            paymentDate: date,
+            createdAt: Date.now(),
+          });
+        }
+        // outros eventos do Tesouro (Atualização, etc.) são ignorados
+        continue;
+      }
 
       const isDividendLike =
         movType.includes("rendimento") ||
@@ -845,10 +963,11 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     }
 
     await saveAssetsBulk(newAssets);
+    await saveTransactionsBulk(newTransactions);
     await saveDividendsBulk(newDividends);
     await saveCashMovementsBulk(newCash);
 
-    return `${newAssets.length} ativos novos, ${newDividends.length} proventos, ${newCash.length} em caixa${
+    return `${newAssets.length} ativos novos, ${newTransactions.length} transações, ${newDividends.length} proventos, ${newCash.length} em caixa${
       skippedDuplicates ? `, ${skippedDuplicates} duplicadas ignoradas` : ""
     }.`;
   };
