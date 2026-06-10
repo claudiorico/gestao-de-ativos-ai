@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Check, Heart } from "lucide-react";
+import { Copy, Check, Heart, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const PIX_KEY = "0fd1dcd7-4db0-4888-bd44-6384b7d3d888";
 const BTC_ADDRESS = "bc1qtf0y90vgxvq39wvypddzm034jz7c62xj7pf64x";
+const SUPPORT_EMAIL = "gestaodegastosapp@gmail.com";
 
 function CopyField({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -79,6 +80,16 @@ export function DonationDialog() {
             <p className="text-xs text-muted-foreground">Rede Bitcoin · Native SegWit (bc1)</p>
           </TabsContent>
         </Tabs>
+
+        <div className="pt-3 border-t border-border/50">
+          <a
+            href={`mailto:${SUPPORT_EMAIL}?subject=InvestPro Vault - Suporte`}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Mail className="h-4 w-4 shrink-0" />
+            {SUPPORT_EMAIL}
+          </a>
+        </div>
       </DialogContent>
     </Dialog>
   );
