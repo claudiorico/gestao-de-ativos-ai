@@ -59,7 +59,7 @@ export default function Dividends() {
   const { toast } = useToast();
   const { isUnlocked, getDividends } = useSecureStorage();
   const { assets } = useAssets();
-  const { portfolios } = usePortfolios();
+  const { portfolios, portfoliosWithAssets } = usePortfolios();
 
   const [dividends, setDividends] = useState<Dividend[]>([]);
 
@@ -124,9 +124,19 @@ export default function Dividends() {
 
   const avgMonthly = useMemo(() => totalAnnual / 12, [totalAnnual]);
 
+  // Cost basis = currentValue - gain, per asset, across all portfolios.
+  // Using portfoliosWithAssets because for B3-imported assets the raw
+  // asset.shares / asset.averagePrice are 0 — the hook derives the real
+  // values from transactions and stores them in currentValue and gain.
   const totalCostBasis = useMemo(
-    () => assets.reduce((sum, a) => sum + a.shares * a.averagePrice, 0),
-    [assets]
+    () =>
+      portfoliosWithAssets.reduce(
+        (pSum, p) =>
+          pSum +
+          p.assets.reduce((aSum, a) => aSum + (a.currentValue - a.gain), 0),
+        0
+      ),
+    [portfoliosWithAssets]
   );
 
   const yieldOnCost = useMemo(() => {
