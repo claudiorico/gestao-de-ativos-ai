@@ -26,7 +26,7 @@ export default function Privacy() {
             </div>
             <div>
               <h1 className="text-2xl font-bold">Política de Privacidade</h1>
-              <p className="text-sm text-muted-foreground">InvestPro Vault · Última atualização: junho de 2026</p>
+              <p className="text-sm text-muted-foreground">Cofre Investimentos · Última atualização: junho de 2026</p>
             </div>
           </div>
         </div>
@@ -35,7 +35,7 @@ export default function Privacy() {
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
           <h2 className="font-semibold text-foreground mb-2">Princípio fundamental: seus dados ficam com você</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            O InvestPro Vault foi projetado como um app <strong className="text-foreground">local-first</strong>: todos os
+            O Cofre Investimentos foi projetado como um app <strong className="text-foreground">local-first</strong>: todos os
             seus dados financeiros são armazenados exclusivamente no seu próprio dispositivo (IndexedDB do navegador),
             criptografados com sua senha. Nenhum servidor nosso armazena seu portfólio, transações ou proventos.
           </p>
@@ -113,7 +113,7 @@ export default function Privacy() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">8. Código aberto</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            O InvestPro Vault é software de código aberto (licença MIT). Você pode inspecionar, auditar e contribuir
+            O Cofre Investimentos é software de código aberto (licença MIT). Você pode inspecionar, auditar e contribuir
             com o código no GitHub. A transparência do código é a melhor garantia de que esta política é cumprida.
           </p>
         </section>
@@ -131,7 +131,7 @@ export default function Privacy() {
           <p className="text-sm text-muted-foreground leading-relaxed">
             Dúvidas, sugestões ou solicitações relacionadas à privacidade:{" "}
             <a
-              href="mailto:gestaodegastosapp@gmail.com?subject=InvestPro Vault - Privacidade"
+              href="mailto:gestaodegastosapp@gmail.com?subject=Cofre Investimentos - Privacidade"
               className="underline hover:text-foreground"
             >
               gestaodegastosapp@gmail.com
@@ -140,7 +140,7 @@ export default function Privacy() {
         </section>
 
         <div className="pt-4 border-t border-border/50 text-xs text-muted-foreground">
-          InvestPro Vault · Software livre sob licença MIT · Não é um serviço de consultoria financeira
+          Cofre Investimentos · Software livre sob licença MIT · Não é um serviço de consultoria financeira
         </div>
       </div>
     </div>

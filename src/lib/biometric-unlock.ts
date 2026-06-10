@@ -91,8 +91,8 @@ export async function enrollBiometric(namespace: string, password: string): Prom
   const cred = (await navigator.credentials.create({
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
-      rp: { name: "InvestPro Vault", id: location.hostname },
-      user: { id: userId, name: `vault-${namespace || "default"}`, displayName: "InvestPro Vault" },
+      rp: { name: "Cofre Investimentos", id: location.hostname },
+      user: { id: userId, name: `vault-${namespace || "default"}`, displayName: "Cofre Investimentos" },
       pubKeyCredParams: [
         { type: "public-key", alg: -7 },
         { type: "public-key", alg: -257 },

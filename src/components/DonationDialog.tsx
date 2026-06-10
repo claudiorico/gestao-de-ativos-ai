@@ -84,7 +84,7 @@ export function DonationDialog() {
 
         <div className="pt-3 border-t border-border/50 space-y-2">
           <a
-            href={`mailto:${SUPPORT_EMAIL}?subject=InvestPro Vault - Suporte`}
+            href={`mailto:${SUPPORT_EMAIL}?subject=Cofre Investimentos - Suporte`}
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <Mail className="h-4 w-4 shrink-0" />

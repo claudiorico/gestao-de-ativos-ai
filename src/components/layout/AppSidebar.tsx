@@ -66,8 +66,8 @@ export function AppSidebar() {
           </div>
           {open && (
             <div className="flex flex-col min-w-0">
-              <span className="text-lg font-bold text-foreground truncate">InvestPro</span>
-              <span className="text-xs text-muted-foreground truncate">Gestão de Ativos</span>
+              <span className="text-lg font-bold text-foreground truncate">Cofre</span>
+              <span className="text-xs text-muted-foreground truncate">Investimentos</span>
             </div>
           )}
         </div>
