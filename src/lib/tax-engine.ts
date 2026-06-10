@@ -190,6 +190,15 @@ export function inferTaxCategory(asset: Asset): TaxCategory {
   return "B3_EQUITIES";
 }
 
+/**
+ * Retorna true apenas para ativos sujeitos à apuração de ganho de capital via DARF.
+ * Fundos de investimento: IR recolhido pelo administrador (come-cotas/resgate).
+ * Renda fixa (Tesouro, CDB…): IR na fonte, sem DARF de ganho de capital.
+ */
+export function isCapitalGainsTaxable(asset: Asset): boolean {
+  return asset.type !== "investment_fund" && asset.type !== "fixed_income";
+}
+
 function mergeConfig(partial?: Partial<TaxEngineConfig>): TaxEngineConfig {
   const base = defaultTaxEngineConfig;
   return {
@@ -317,6 +326,9 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
       warnings.push(`Transação ${t.id} referencia assetId inexistente (${t.assetId}).`);
       continue;
     }
+
+    // Fundos e renda fixa: IR recolhido na fonte / come-cotas, sem DARF de ganho de capital
+    if (!isCapitalGainsTaxable(asset)) continue;
 
     const category = inferTaxCategory(asset);
 

@@ -102,8 +102,8 @@ function CategorySummary({ cat }: { cat: MonthlyCategoryApuration }) {
         {cat.operations.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">Nenhuma venda registrada nesta categoria no mês.</div>
         ) : (
-          <div className="max-h-[50vh] overflow-auto">
-            <table className="w-full">
+          <div className="max-h-[45vh] overflow-auto">
+            <table className="w-full min-w-max">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -207,7 +207,7 @@ export function TaxAuditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
