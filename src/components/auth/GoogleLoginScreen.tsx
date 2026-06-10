@@ -264,6 +264,10 @@ export function GoogleLoginScreen({ onLoginSuccess }: GoogleLoginScreenProps) {
         <p className="text-center text-xs text-muted-foreground mt-6">
           Seus dados financeiros nunca são enviados para servidores externos
         </p>
+        <div className="flex justify-center gap-4 mt-2 text-xs text-muted-foreground">
+          <a href="/ajuda" className="hover:text-foreground underline transition-colors">Manual de uso</a>
+          <a href="/privacy" className="hover:text-foreground underline transition-colors">Privacidade</a>
+        </div>
       </motion.div>
     </div>
   );

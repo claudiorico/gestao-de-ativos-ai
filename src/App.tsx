@@ -20,6 +20,7 @@ import Taxes from "./pages/Taxes";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 import Privacy from "./pages/Privacy";
+import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +52,7 @@ function AppContent() {
           {/* Public pages (no login required) */}
           <Route path="/auth/diagnostico" element={<AuthDiagnostics />} />
           <Route path="/privacy" element={<Privacy />} />
+          <Route path="/ajuda" element={<Help />} />
 
           {/* Everything requires: 1) Google login 2) Vault unlock */}
           <Route element={<ProtectedLayout />}>

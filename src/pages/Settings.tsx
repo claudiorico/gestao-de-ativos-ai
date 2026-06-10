@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { motion } from "framer-motion";
 import { User, Bell, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle, Tag, Trash2 } from "lucide-react";
@@ -1266,6 +1266,21 @@ export default function Settings() {
         return renderProfileSection();
       case "notifications":
         return renderNotificationsSection();
+      case "help":
+        return (
+          <div className="rounded-xl border border-border bg-card p-6 shadow-card space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">Ajuda e documentação</h3>
+            <p className="text-sm text-muted-foreground">
+              Consulte o manual completo com guia de importação, backup, balanceamento e perguntas frequentes.
+            </p>
+            <Link to="/ajuda">
+              <Button className="gap-2">
+                <HelpCircle className="h-4 w-4" />
+                Abrir manual de uso
+              </Button>
+            </Link>
+          </div>
+        );
       default:
         return (
           <div className="rounded-xl border border-border bg-card p-6 shadow-card">
