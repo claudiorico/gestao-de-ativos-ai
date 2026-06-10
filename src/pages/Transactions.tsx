@@ -356,15 +356,17 @@ export default function Transactions() {
     hasActiveFilter ? "(filtro)" : isCurrentYear ? "(mês)" : `(${yearFilter})`;
 
   // Assets that actually have movements in the selected year (for the filter dropdown)
+  // Asset dropdown: filtered by year only (ignores active assetFilter so the user
+  // can always see and switch between all assets that have movements in the period)
   const assetsWithMovements = useMemo<Asset[]>(() => {
     const assetIds = new Set<string>();
-    for (const m of filteredMovements) {
-      if (m.assetId) assetIds.add(m.assetId);
+    for (const m of movements) {
+      if (!m.assetId) continue;
+      if (yearFilter !== "all" && new Date(m.date).getFullYear() !== Number(yearFilter)) continue;
+      assetIds.add(m.assetId);
     }
-    // Also include currently filtered asset even if not in current year view
-    if (assetFilter !== "all") assetIds.add(assetFilter);
     return assets.filter((a) => assetIds.has(a.id));
-  }, [assets, filteredMovements, assetFilter]);
+  }, [assets, movements, yearFilter]);
 
   return (
     <DashboardLayout>
