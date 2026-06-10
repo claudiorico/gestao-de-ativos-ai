@@ -111,7 +111,20 @@ export default function Privacy() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">8. Código aberto</h2>
+          <h2 className="text-lg font-semibold">8. Cálculos financeiros e fiscais</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            As funcionalidades de cálculo de imposto de renda (DARF, Bens e Direitos, Rendimentos) são
+            <strong className="text-foreground"> recursos auxiliares em desenvolvimento</strong> e podem
+            conter divergências em relação às regras vigentes da Receita Federal.
+            Os valores exibidos e os arquivos exportados são <strong className="text-foreground">material de referência</strong> —
+            não substituem declaração oficial, assessoria tributária ou ferramenta homologada pela Receita Federal.
+            Sempre verifique os valores com sua corretora e/ou contador antes de emitir um DARF ou enviar
+            sua declaração de Imposto de Renda.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">9. Código aberto</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
             O Cofre Investimentos é software de código aberto (licença MIT). Você pode inspecionar, auditar e contribuir
             com o código no GitHub. A transparência do código é a melhor garantia de que esta política é cumprida.
@@ -119,7 +132,7 @@ export default function Privacy() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">9. Alterações nesta política</h2>
+          <h2 className="text-lg font-semibold">10. Alterações nesta política</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
             Qualquer alteração relevante será publicada nesta página com nova data de atualização.
             Como não coletamos e-mails, não enviamos notificações — recomendamos revisitar esta página ocasionalmente.
@@ -127,7 +140,7 @@ export default function Privacy() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">10. Contato</h2>
+          <h2 className="text-lg font-semibold">11. Contato</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
             Dúvidas, sugestões ou solicitações relacionadas à privacidade:{" "}
             <a

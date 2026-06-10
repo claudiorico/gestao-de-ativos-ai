@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Wallet, TrendingUp, Coins, AlertTriangle } from "lucide-react";
+import { Wallet, TrendingUp, Coins, AlertTriangle, Percent } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -13,7 +13,7 @@ import {
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
-import type { Asset, CashMovement, Dividend, Transaction } from "@/types/financial";
+import type { Asset, Dividend, Transaction } from "@/types/financial";
 import { usePrices } from "@/hooks/usePrices";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 
@@ -42,7 +42,6 @@ function endOfMonth(date: Date) {
 
 function lastPriceOnOrBefore(points: HistoryPoint[], t: number): number | null {
   if (!points?.length) return null;
-  // points expected sorted asc
   let lo = 0;
   let hi = points.length - 1;
   let bestIdx = -1;
@@ -62,76 +61,52 @@ function sumSafe(n: number) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Returns shares held per assetId at a given point in time, derived from transactions
 function computeSharesAtDate(transactions: Transaction[], dateMs: number): Map<string, number> {
   const byAsset = new Map<string, number>();
   for (const t of transactions) {
     if (t.date > dateMs) continue;
     const cur = byAsset.get(t.assetId) ?? 0;
-    const delta = t.type === "buy" ? t.shares : -t.shares;
-    byAsset.set(t.assetId, cur + delta);
+    byAsset.set(t.assetId, cur + (t.type === "buy" ? t.shares : -t.shares));
   }
   return byAsset;
 }
 
+// Returns current shares held per assetId from all transactions
 function computeNetSharesNow(transactions: Transaction[]): Map<string, number> {
-  const byAsset = new Map<string, number>();
-  for (const t of transactions) {
-    const cur = byAsset.get(t.assetId) ?? 0;
-    const delta = t.type === "buy" ? t.shares : -t.shares;
-    byAsset.set(t.assetId, cur + delta);
-  }
-  return byAsset;
+  return computeSharesAtDate(transactions, Date.now());
 }
 
-function computeCashAtDate(
-  transactions: Transaction[],
-  dividends: Dividend[],
-  cashMovements: CashMovement[],
-  dateMs: number,
-) {
-  let cash = 0;
-  for (const m of cashMovements) {
-    if (m.date > dateMs) continue;
-    cash += m.type === "deposit" ? sumSafe(m.value) : -sumSafe(m.value);
+// Cost basis at a point in time (weighted average, FIFO-compatible):
+// sums buy costs, reduces proportionally on sells
+function computeCostBasisAtDate(transactions: Transaction[], dateMs: number): number {
+  const costByAsset = new Map<string, { qty: number; cost: number }>();
+  const sorted = [...transactions].filter((t) => t.date <= dateMs).sort((a, b) => a.date - b.date);
+  for (const t of sorted) {
+    const pos = costByAsset.get(t.assetId) ?? { qty: 0, cost: 0 };
+    if (t.type === "buy") {
+      pos.cost += sumSafe(t.totalValue) + sumSafe(t.fees);
+      pos.qty += sumSafe(t.shares);
+    } else {
+      const avg = pos.qty > 0 ? pos.cost / pos.qty : 0;
+      const soldQty = Math.min(sumSafe(t.shares), pos.qty);
+      pos.qty = Math.max(0, pos.qty - soldQty);
+      pos.cost = Math.max(0, pos.cost - avg * soldQty);
+    }
+    costByAsset.set(t.assetId, pos);
   }
-  for (const t of transactions) {
-    if (t.date > dateMs) continue;
-    const fees = sumSafe(t.fees);
-    if (t.type === "buy") cash -= sumSafe(t.totalValue) + fees;
-    else cash += sumSafe(t.totalValue) - fees;
-  }
-  for (const d of dividends) {
-    if (d.paymentDate > dateMs) continue;
-    cash += sumSafe(d.totalValue);
-  }
-  return cash;
-}
-
-function computeNetDepositsAtDate(cashMovements: CashMovement[], dateMs: number) {
-  let net = 0;
-  for (const m of cashMovements) {
-    if (m.date > dateMs) continue;
-    net += m.type === "deposit" ? sumSafe(m.value) : -sumSafe(m.value);
-  }
-  return net;
-}
-
-function computeWithdrawalsTotal(cashMovements: CashMovement[]) {
-  return cashMovements.filter((m) => m.type === "withdraw").reduce((acc, m) => acc + sumSafe(m.value), 0);
-}
-
-function computeDepositsTotal(cashMovements: CashMovement[]) {
-  return cashMovements.filter((m) => m.type === "deposit").reduce((acc, m) => acc + sumSafe(m.value), 0);
+  let total = 0;
+  for (const { cost } of costByAsset.values()) total += cost;
+  return total;
 }
 
 export default function Analytics() {
-  const { isUnlocked, getAssets, getTransactions, getDividends, getCashMovements } = useSecureStorage();
+  const { isUnlocked, getAssets, getTransactions, getDividends } = useSecureStorage();
   const { quotes, fetchQuotes, isLoading: isPricesLoading, error: pricesError } = usePrices();
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
-  const [cashMovements, setCashMovements] = useState<CashMovement[]>([]);
   const [historyByTicker, setHistoryByTicker] = useState<Record<string, HistoryPoint[]>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -141,7 +116,6 @@ export default function Analytics() {
       setAssets([]);
       setTransactions([]);
       setDividends([]);
-      setCashMovements([]);
       setHistoryByTicker({});
       setLoadError(null);
       return;
@@ -152,17 +126,15 @@ export default function Analytics() {
       try {
         setIsLoading(true);
         setLoadError(null);
-        const [a, tx, dv, cm] = await Promise.all([
+        const [a, tx, dv] = await Promise.all([
           getAssets(),
           getTransactions(),
           getDividends(),
-          getCashMovements(),
         ]);
         if (!mounted) return;
         setAssets(a);
         setTransactions(tx);
         setDividends(dv);
-        setCashMovements(cm);
       } catch (e) {
         console.error("[Analytics] load failed", e);
         if (!mounted) return;
@@ -179,28 +151,17 @@ export default function Analytics() {
       mounted = false;
       window.removeEventListener("vault-data-changed", onChanged);
     };
-  }, [getAssets, getCashMovements, getDividends, getTransactions, isUnlocked]);
-
-  const transactionsByAssetId = useMemo(() => {
-    const map = new Map<string, Transaction[]>();
-    for (const t of transactions) {
-      const list = map.get(t.assetId) ?? [];
-      list.push(t);
-      map.set(t.assetId, list);
-    }
-    return map;
-  }, [transactions]);
+  }, [getAssets, getDividends, getTransactions, isUnlocked]);
 
   const derivedSharesNowByAssetId = useMemo(() => computeNetSharesNow(transactions), [transactions]);
 
   const tickers = useMemo(() => {
-    // Importante: só pede cotações/histórico para ativos que têm posição (via shares manual ou via transações).
     return Array.from(
       new Set(
         assets
           .filter((a) => {
-            const manual = Number(a.shares ?? 0) > 0;
             const derived = (derivedSharesNowByAssetId.get(a.id) ?? 0) > 0;
+            const manual = Number(a.shares ?? 0) > 0;
             return manual || derived;
           })
           .map((a) => String(a.ticker ?? "").trim().toUpperCase())
@@ -210,37 +171,21 @@ export default function Analytics() {
   }, [assets, derivedSharesNowByAssetId]);
 
   useEffect(() => {
-    if (!isUnlocked) return;
-    if (tickers.length === 0) return;
-
-    // current quotes
-    fetchQuotes(tickers).catch(() => {
-      // hook already stores error
-    });
+    if (!isUnlocked || tickers.length === 0) return;
+    fetchQuotes(tickers).catch(() => {});
   }, [fetchQuotes, isUnlocked, tickers]);
 
   useEffect(() => {
-    if (!isUnlocked) return;
-    if (tickers.length === 0) return;
-
+    if (!isUnlocked || tickers.length === 0) return;
     let mounted = true;
+
     const loadHistory = async () => {
       const { data, error } = await invokeBackendFunction<{ histories: TickerHistory[]; error?: string }>(
         "get-price-history",
-        // Enviar no máximo 25 tickers por chamada evita estourar limite de compute.
         { body: { tickers: tickers.slice(0, 25), months: 6 } },
       );
-
       if (!mounted) return;
-
-      if (error) {
-        console.warn("[Analytics] get-price-history error", error);
-        return;
-      }
-      if (data?.error) {
-        console.warn("[Analytics] get-price-history responded error", data.error);
-        return;
-      }
+      if (error || data?.error) return;
 
       const next: Record<string, HistoryPoint[]> = {};
       for (const h of data?.histories ?? []) {
@@ -254,12 +199,18 @@ export default function Analytics() {
     };
 
     loadHistory();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [isUnlocked, tickers]);
 
-  const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  const transactionsByAssetId = useMemo(() => {
+    const map = new Map<string, Transaction[]>();
+    for (const t of transactions) {
+      const list = map.get(t.assetId) ?? [];
+      list.push(t);
+      map.set(t.assetId, list);
+    }
+    return map;
+  }, [transactions]);
 
   const months = useMemo(() => {
     const now = new Date();
@@ -271,88 +222,89 @@ export default function Analytics() {
     return out;
   }, []);
 
+  // Series: portfolio value vs cost basis over the last 6 months
   const series = useMemo(() => {
     if (!isUnlocked) return [];
 
     return months.map(({ key, t }) => {
       const sharesAt = computeSharesAtDate(transactions, t);
-      const cash = computeCashAtDate(transactions, dividends, cashMovements, t);
-      const invested = computeNetDepositsAtDate(cashMovements, t);
+      const costBasis = computeCostBasisAtDate(transactions, t);
+
+      // Total dividends accumulated up to this point
+      const totalDividends = dividends
+        .filter((d) => d.paymentDate <= t)
+        .reduce((acc, d) => acc + sumSafe(d.totalValue), 0);
 
       let holdings = 0;
-      // Estratégia de shares:
-      // - se houver transações, usamos o saldo derivado delas
-      // - se não houver transações para o ativo, mas o ativo tem shares manual, assumimos que ele existia durante toda a janela
       for (const asset of assets) {
-        const assetId = asset.id;
-        const txsForAsset = transactionsByAssetId.get(assetId) ?? [];
-
-        const derivedSharesAt = sharesAt.get(assetId) ?? 0;
-        const hasManualHoldings = Number(asset.shares ?? 0) > 0 && Number(asset.averagePrice ?? 0) > 0;
-        const shares = txsForAsset.length > 0 ? derivedSharesAt : hasManualHoldings ? Number(asset.shares) : 0;
+        const txsForAsset = transactionsByAssetId.get(asset.id) ?? [];
+        const derivedSharesAt = sharesAt.get(asset.id) ?? 0;
+        const hasManual = Number(asset.shares ?? 0) > 0 && Number(asset.averagePrice ?? 0) > 0;
+        const shares = txsForAsset.length > 0 ? derivedSharesAt : hasManual ? Number(asset.shares) : 0;
 
         if (!Number.isFinite(shares) || shares <= 0) continue;
 
-        const ticker = String(asset?.ticker ?? "").toUpperCase();
+        const ticker = String(asset.ticker ?? "").toUpperCase();
         if (!ticker) continue;
 
         const historyPoints = historyByTicker[ticker] ?? historyByTicker[`${ticker}.SA`];
         const histPrice = historyPoints ? lastPriceOnOrBefore(historyPoints, t) : null;
         const live = quotes[ticker]?.price ?? quotes[`${ticker}.SA`]?.price;
-        const fallback = asset?.averagePrice;
+        const fallback = asset.averagePrice;
 
         const price = histPrice ?? live ?? fallback ?? 0;
         holdings += shares * price;
       }
 
-      const patrimony = holdings + cash;
       return {
         month: key,
-        patrimony,
-        cash,
-        invested,
+        patrimony: holdings,
+        costBasis,
+        totalDividends,
       };
     });
-  }, [assetById, assets, cashMovements, dividends, historyByTicker, isUnlocked, months, quotes, transactions, transactionsByAssetId]);
+  }, [assets, dividends, historyByTicker, isUnlocked, months, quotes, transactions, transactionsByAssetId]);
 
+  // Summary cards: use current quotes for live portfolio value
   const summary = useMemo(() => {
-    const deposits = computeDepositsTotal(cashMovements);
-    const withdrawals = computeWithdrawalsTotal(cashMovements);
-    const last = series[series.length - 1];
-    const patrimony = last?.patrimony ?? 0;
-    const cash = last?.cash ?? 0;
+    let currentValue = 0;
+    for (const asset of assets) {
+      const txsForAsset = transactionsByAssetId.get(asset.id) ?? [];
+      const derivedShares = derivedSharesNowByAssetId.get(asset.id) ?? 0;
+      const hasManual = Number(asset.shares ?? 0) > 0;
+      const shares = txsForAsset.length > 0 ? derivedShares : hasManual ? Number(asset.shares) : 0;
+      if (!Number.isFinite(shares) || shares <= 0) continue;
 
-    // Resultado total (considera saques como realização)
-    const totalResult = patrimony + withdrawals - deposits;
-    const totalReturnPct = deposits > 0 ? (totalResult / deposits) * 100 : 0;
+      const ticker = String(asset.ticker ?? "").toUpperCase();
+      const price =
+        quotes[ticker]?.price ??
+        quotes[`${ticker}.SA`]?.price ??
+        asset.averagePrice ??
+        0;
+      currentValue += shares * sumSafe(price);
+    }
 
-    // Resultado de caixa (quanto “sobrou/foi gerado” em caixa vs aportes)
-    const cashResult = cash + withdrawals - deposits;
-    const cashReturnPct = deposits > 0 ? (cashResult / deposits) * 100 : 0;
+    const costBasis = computeCostBasisAtDate(transactions, Date.now());
 
-    return {
-      deposits,
-      withdrawals,
-      patrimony,
-      cash,
-      totalResult,
-      totalReturnPct,
-      cashResult,
-      cashReturnPct,
-    };
-  }, [cashMovements, series]);
+    const totalDividends = dividends.reduce((acc, d) => acc + sumSafe(d.totalValue), 0);
 
-  const hasData = isUnlocked && (assets.length > 0 || transactions.length > 0 || cashMovements.length > 0);
+    const result = currentValue - costBasis;
+    const returnPct = costBasis > 0 ? (result / costBasis) * 100 : 0;
+
+    return { currentValue, costBasis, result, returnPct, totalDividends };
+  }, [assets, derivedSharesNowByAssetId, dividends, quotes, transactions, transactionsByAssetId]);
+
+  const hasData = isUnlocked && (assets.length > 0 || transactions.length > 0);
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
-          <p className="text-muted-foreground">Performance do patrimônio e performance de caixa</p>
+          <p className="text-muted-foreground">Performance e evolução do portfólio</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Observação: o histórico usa preços públicos quando disponíveis; caso falte histórico para algum ativo, usamos a
-            cotação atual como aproximação.
+            O histórico usa preços públicos quando disponíveis; caso falte para algum ativo, o preço
+            médio é usado como aproximação.
           </p>
         </motion.div>
 
@@ -368,9 +320,7 @@ export default function Analytics() {
               <AlertTriangle className="h-5 w-5 text-warning" />
               <div className="text-sm">
                 <div className="font-medium text-foreground">Alguns dados não puderam ser carregados</div>
-                <div className="text-muted-foreground">
-                  {loadError ?? pricesError}
-                </div>
+                <div className="text-muted-foreground">{loadError ?? pricesError}</div>
               </div>
             </div>
           </div>
@@ -378,7 +328,7 @@ export default function Analytics() {
 
         {isUnlocked && !hasData && !isLoading && (
           <div className="rounded-xl border border-border bg-card p-6 shadow-card text-muted-foreground">
-            Nenhum dado suficiente para calcular performance (adicione aportes/saques e/ou transações).
+            Nenhum dado suficiente para calcular performance. Adicione transações ao seu portfólio.
           </div>
         )}
 
@@ -392,135 +342,111 @@ export default function Analytics() {
             >
               <div className="rounded-xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Wallet className="h-4 w-4" /> Patrimônio atual
+                  <Wallet className="h-4 w-4" /> Valor atual do portfólio
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {formatCurrency(summary.patrimony)}
+                  {isLoading || isPricesLoading ? "…" : formatCurrency(summary.currentValue)}
                 </div>
               </div>
 
               <div className="rounded-xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Coins className="h-4 w-4" /> Caixa atual
+                  <Coins className="h-4 w-4" /> Custo total investido
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {formatCurrency(summary.cash)}
+                  {isLoading ? "…" : formatCurrency(summary.costBasis)}
                 </div>
               </div>
 
               <div className="rounded-xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <TrendingUp className="h-4 w-4" /> Resultado total
+                  <TrendingUp className="h-4 w-4" /> Resultado (ganho/perda)
                 </div>
-                <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {formatCurrency(summary.totalResult)}
+                <div
+                  className={
+                    "text-2xl font-bold tabular-nums " +
+                    (summary.result >= 0 ? "text-success" : "text-destructive")
+                  }
+                >
+                  {isLoading || isPricesLoading ? "…" : formatCurrency(summary.result)}
                 </div>
-                <div className="text-xs text-muted-foreground tabular-nums">
-                  {summary.totalReturnPct >= 0 ? "+" : ""}
-                  {summary.totalReturnPct.toFixed(2)}% sobre aportes
-                </div>
+                {!isLoading && !isPricesLoading && summary.costBasis > 0 && (
+                  <div className="text-xs text-muted-foreground tabular-nums">
+                    {summary.returnPct >= 0 ? "+" : ""}
+                    {summary.returnPct.toFixed(2)}% sobre o custo
+                  </div>
+                )}
               </div>
 
               <div className="rounded-xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <TrendingUp className="h-4 w-4" /> Resultado de caixa
+                  <Percent className="h-4 w-4" /> Proventos recebidos
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {formatCurrency(summary.cashResult)}
-                </div>
-                <div className="text-xs text-muted-foreground tabular-nums">
-                  {summary.cashReturnPct >= 0 ? "+" : ""}
-                  {summary.cashReturnPct.toFixed(2)}% sobre aportes
+                  {isLoading ? "…" : formatCurrency(summary.totalDividends)}
                 </div>
               </div>
             </motion.div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="rounded-xl border border-border bg-card p-6 shadow-card"
-              >
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-foreground">Patrimônio x Aportes</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Últimos 6 meses {isLoading || isPricesLoading ? "• carregando…" : ""}
-                  </p>
-                </div>
-                <div className="h-[280px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={series} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
-                      <YAxis
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                        tickFormatter={formatCompact}
-                        width={70}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "12px",
-                        }}
-                        formatter={(value: number, name: string) => [formatCurrency(value), name]}
-                        labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-                      />
-                      <Line type="monotone" dataKey="patrimony" name="Patrimônio" stroke="hsl(var(--primary))" strokeWidth={3} dot={false} />
-                      <Line
-                        type="monotone"
-                        dataKey="invested"
-                        name="Aportes líquidos"
-                        stroke="hsl(var(--muted-foreground))"
-                        strokeWidth={2}
-                        strokeDasharray="6 6"
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 }}
-                className="rounded-xl border border-border bg-card p-6 shadow-card"
-              >
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-foreground">Evolução do Caixa</h3>
-                  <p className="text-sm text-muted-foreground">Últimos 6 meses</p>
-                </div>
-                <div className="h-[280px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={series} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
-                      <YAxis
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                        tickFormatter={formatCompact}
-                        width={70}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "12px",
-                        }}
-                        formatter={(value: number) => [formatCurrency(value), "Caixa"]}
-                        labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-                      />
-                      <Line type="monotone" dataKey="cash" name="Caixa" stroke="hsl(var(--chart-2))" strokeWidth={3} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
-            </div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="rounded-xl border border-border bg-card p-6 shadow-card"
+            >
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-foreground">Valor do Portfólio vs Custo</h3>
+                <p className="text-sm text-muted-foreground">
+                  Últimos 6 meses {isLoading || isPricesLoading ? "• carregando…" : ""}
+                </p>
+              </div>
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={series} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis
+                      dataKey="month"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                      tickFormatter={formatCompact}
+                      width={70}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "12px",
+                      }}
+                      formatter={(value: number, name: string) => [formatCurrency(value), name]}
+                      labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="patrimony"
+                      name="Valor do portfólio"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={3}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="costBasis"
+                      name="Custo investido"
+                      stroke="hsl(var(--muted-foreground))"
+                      strokeWidth={2}
+                      strokeDasharray="6 6"
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </motion.div>
           </>
         )}
       </div>

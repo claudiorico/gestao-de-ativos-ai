@@ -491,6 +491,11 @@ export default function Balancing() {
     );
   }
 
+  // Has assets overall but none have target allocations configured
+  const hasAssetsWithoutTargets =
+    allAssets.length === 0 &&
+    portfoliosWithAssets.some((p) => (p.assets ?? []).length > 0);
+
   if (allAssets.length === 0) {
     return (
       <DashboardLayout>
@@ -498,12 +503,22 @@ export default function Balancing() {
           <div className="rounded-full bg-muted p-4">
             <TrendingUp className="h-8 w-8 text-muted-foreground" />
           </div>
-          <div>
-            <h2 className="text-xl font-semibold">Nenhum ativo cadastrado</h2>
-            <p className="text-muted-foreground">
-              Adicione ativos aos seus portfólios para calcular o balanceamento
-            </p>
-          </div>
+          {hasAssetsWithoutTargets ? (
+            <div>
+              <h2 className="text-xl font-semibold">Configure as alocações alvo</h2>
+              <p className="text-muted-foreground max-w-sm">
+                Você tem ativos cadastrados, mas nenhuma carteira tem alocação alvo configurada (%).
+                Abra cada carteira, defina a % alvo dos ativos e volte aqui.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <h2 className="text-xl font-semibold">Nenhum ativo cadastrado</h2>
+              <p className="text-muted-foreground">
+                Adicione ativos aos seus portfólios para calcular o balanceamento
+              </p>
+            </div>
+          )}
         </div>
       </DashboardLayout>
     );
@@ -728,8 +743,8 @@ export default function Balancing() {
                         <div
                           className={cn(
                             "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium",
-                            isUnderAllocated && "bg-loss-muted text-loss",
-                            isOverAllocated && "bg-success-muted text-success",
+                            isUnderAllocated && "bg-primary/10 text-primary",
+                            isOverAllocated && "bg-warning/10 text-warning",
                             !isUnderAllocated && !isOverAllocated && "bg-muted text-muted-foreground"
                           )}
                         >

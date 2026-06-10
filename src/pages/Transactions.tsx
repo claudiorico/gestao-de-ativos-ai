@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -14,6 +14,8 @@ import {
   Percent,
   TrendingUp,
   Gift,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -21,9 +23,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { useAssets } from "@/hooks/useAssets";
-import { usePortfolios } from "@/hooks/usePortfolios";
 import { useToast } from "@/hooks/use-toast";
-import type { CashMovement, Dividend, Transaction } from "@/types/financial";
+import type { Asset, CashMovement, Dividend, Portfolio, Transaction } from "@/types/financial";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +53,8 @@ import {
 import { MovementEditDialog } from "@/components/transactions/MovementEditDialog";
 import { BackupRestoreDialog } from "@/components/backup/BackupRestoreDialog";
 
+const PAGE_SIZE = 50;
+
 type MovementKind = "buy" | "sell" | "dividend" | "deposit" | "withdraw";
 
 type MovementCategory =
@@ -66,8 +69,8 @@ type MovementCategory =
 
 type MovementRow = {
   id: string;
-  kind: MovementKind; // usado para editar/excluir
-  category: MovementCategory; // usado para chip + filtros
+  kind: MovementKind;
+  category: MovementCategory;
   label: string;
   assetId?: string;
   ticker?: string;
@@ -83,81 +86,33 @@ type EditTarget =
   | { kind: "dividend"; item: Dividend }
   | { kind: "cash"; item: CashMovement };
 
-const categoryConfig: Record<MovementCategory, { label: string; icon: any; color: string; bg: string }> = {
-  buy: {
-    label: "Compra",
-    icon: ArrowDownLeft,
-    color: "text-chart-2",
-    bg: "bg-accent",
-  },
-  sell: {
-    label: "Venda",
-    icon: ArrowUpRight,
-    color: "text-loss",
-    bg: "bg-loss-muted",
-  },
-  deposit: {
-    label: "Aporte",
-    icon: Wallet,
-    color: "text-success",
-    bg: "bg-success-muted",
-  },
-  withdraw: {
-    label: "Saque",
-    icon: Wallet,
-    color: "text-loss",
-    bg: "bg-loss-muted",
-  },
-  dividend_dividend: {
-    label: "Dividendo",
-    icon: Coins,
-    color: "text-warning",
-    bg: "bg-warning-muted",
-  },
-  dividend_jcp: {
-    label: "JCP",
-    icon: Percent,
-    color: "text-chart-3",
-    bg: "bg-secondary",
-  },
-  dividend_yield: {
-    label: "Rendimento",
-    icon: TrendingUp,
-    color: "text-success",
-    bg: "bg-success-muted",
-  },
-  dividend_bonus: {
-    label: "Bônus",
-    icon: Gift,
-    color: "text-chart-2",
-    bg: "bg-accent",
-  },
+const categoryConfig: Record<
+  MovementCategory,
+  { label: string; icon: React.ElementType; color: string; bg: string }
+> = {
+  buy: { label: "Compra", icon: ArrowDownLeft, color: "text-chart-2", bg: "bg-accent" },
+  sell: { label: "Venda", icon: ArrowUpRight, color: "text-loss", bg: "bg-loss-muted" },
+  deposit: { label: "Aporte", icon: Wallet, color: "text-success", bg: "bg-success-muted" },
+  withdraw: { label: "Saque", icon: Wallet, color: "text-loss", bg: "bg-loss-muted" },
+  dividend_dividend: { label: "Dividendo", icon: Coins, color: "text-warning", bg: "bg-warning-muted" },
+  dividend_jcp: { label: "JCP", icon: Percent, color: "text-chart-3", bg: "bg-secondary" },
+  dividend_yield: { label: "Rendimento", icon: TrendingUp, color: "text-success", bg: "bg-success-muted" },
+  dividend_bonus: { label: "Bônus", icon: Gift, color: "text-chart-2", bg: "bg-accent" },
 };
 
 const categoryOrder: MovementCategory[] = [
-  "buy",
-  "sell",
-  "deposit",
-  "withdraw",
-  "dividend_dividend",
-  "dividend_jcp",
-  "dividend_yield",
-  "dividend_bonus",
+  "buy", "sell", "deposit", "withdraw",
+  "dividend_dividend", "dividend_jcp", "dividend_yield", "dividend_bonus",
 ];
 
-const isMovementCategory = (value: string): value is MovementCategory => {
-  return categoryOrder.includes(value as MovementCategory);
-};
+const isMovementCategory = (v: string): v is MovementCategory =>
+  categoryOrder.includes(v as MovementCategory);
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+const formatCurrency = (v: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
-const formatDate = (dateMs: number) =>
-  new Date(dateMs).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+const formatDate = (ms: number) =>
+  new Date(ms).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
 
 function startOfMonth(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
@@ -171,6 +126,7 @@ export default function Transactions() {
     getTransactions,
     getDividends,
     getCashMovements,
+    getPortfolios,
     deleteTransaction,
     deleteDividend,
     deleteCashMovement,
@@ -179,27 +135,29 @@ export default function Transactions() {
     clearDecryptIssues,
   } = useSecureStorage();
   const { assets } = useAssets();
-  const { portfolios } = usePortfolios();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [cashMovements, setCashMovements] = useState<CashMovement[]>([]);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
 
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     if (!isUnlocked) return;
     try {
-      const [tx, dv, cm] = await Promise.all([
+      const [tx, dv, cm, ps] = await Promise.all([
         getTransactions(),
         getDividends(),
         getCashMovements(),
+        getPortfolios(),
       ]);
       setTransactions(tx);
       setDividends(dv);
       setCashMovements(cm);
+      setPortfolios(ps);
     } catch (err) {
       console.error("[Transactions] Failed to load movements:", err);
       toast({
@@ -208,68 +166,50 @@ export default function Transactions() {
         variant: "destructive",
       });
     }
-  }, [getTransactions, getDividends, getCashMovements, isUnlocked, toast]);
+  }, [getTransactions, getDividends, getCashMovements, getPortfolios, isUnlocked, toast]);
 
-  // Carrega ao entrar na tela e também quando houver mudanças no cofre (salvar/importar/etc.)
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
     if (!isUnlocked) return;
-
-    const onVaultChange = () => {
-      // não precisa await aqui; evita bloquear o handler
-      load();
-    };
-
+    const onVaultChange = () => load();
     window.addEventListener("vault-data-changed", onVaultChange);
     return () => window.removeEventListener("vault-data-changed", onVaultChange);
   }, [isUnlocked, load]);
 
-  const assetById = useMemo(() => {
-    return new Map(assets.map((a) => [a.id, a]));
-  }, [assets]);
-
-  const portfolioById = useMemo(() => {
-    return new Map(portfolios.map((p) => [p.id, p]));
-  }, [portfolios]);
-
+  const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  const portfolioById = useMemo(() => new Map(portfolios.map((p) => [p.id, p])), [portfolios]);
   const txById = useMemo(() => new Map(transactions.map((t) => [t.id, t])), [transactions]);
   const divById = useMemo(() => new Map(dividends.map((d) => [d.id, d])), [dividends]);
   const cashById = useMemo(() => new Map(cashMovements.map((m) => [m.id, m])), [cashMovements]);
 
   const movements = useMemo<MovementRow[]>(() => {
-    const txRows: MovementRow[] = transactions.map((t) => {
-      const asset = assetById.get(t.assetId);
-      const portfolio = portfolioById.get(t.portfolioId);
-      return {
-        id: t.id,
-        kind: t.type,
-        category: t.type,
-        label: categoryConfig[t.type].label,
-        assetId: t.assetId,
-        ticker: asset?.ticker,
-        portfolioName: portfolio?.name,
-        shares: t.shares,
-        price: t.pricePerShare,
-        total: t.totalValue,
-        date: t.date,
-      };
-    });
+    const txRows: MovementRow[] = transactions.map((t) => ({
+      id: t.id,
+      kind: t.type,
+      category: t.type,
+      label: categoryConfig[t.type].label,
+      assetId: t.assetId,
+      ticker: assetById.get(t.assetId)?.ticker,
+      portfolioName: portfolioById.get(t.portfolioId)?.name,
+      shares: t.shares,
+      price: t.pricePerShare,
+      total: t.totalValue,
+      date: t.date,
+    }));
 
     const divRows: MovementRow[] = dividends.map((d) => {
-      const asset = assetById.get(d.assetId);
-      const portfolio = portfolioById.get(d.portfolioId);
       const category = `dividend_${d.type}` as MovementCategory;
       return {
         id: d.id,
-        kind: "dividend",
+        kind: "dividend" as MovementKind,
         category,
         label: categoryConfig[category].label,
         assetId: d.assetId,
-        ticker: asset?.ticker,
-        portfolioName: portfolio?.name,
+        ticker: assetById.get(d.assetId)?.ticker,
+        portfolioName: portfolioById.get(d.portfolioId)?.name,
         shares: d.shares,
         price: d.valuePerShare,
         total: d.totalValue,
@@ -277,42 +217,45 @@ export default function Transactions() {
       };
     });
 
-    const cashRows: MovementRow[] = cashMovements.map((m) => {
-      const portfolio = portfolioById.get(m.portfolioId);
-      const sign = m.type === "withdraw" ? -1 : 1;
-      return {
-        id: m.id,
-        kind: m.type,
-        category: m.type,
-        label: categoryConfig[m.type].label,
-        portfolioName: portfolio?.name,
-        total: m.value * sign,
-        date: m.date,
-      };
-    });
+    const cashRows: MovementRow[] = cashMovements.map((m) => ({
+      id: m.id,
+      kind: m.type as MovementKind,
+      category: m.type,
+      label: categoryConfig[m.type].label,
+      portfolioName: portfolioById.get(m.portfolioId)?.name,
+      total: m.type === "withdraw" ? -m.value : m.value,
+      date: m.date,
+    }));
 
     return [...txRows, ...divRows, ...cashRows].sort((a, b) => b.date - a.date);
   }, [transactions, dividends, cashMovements, assetById, portfolioById]);
 
+  // Available years derived from all movements
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    for (const m of movements) years.add(new Date(m.date).getFullYear());
+    return Array.from(years).sort((a, b) => b - a);
+  }, [movements]);
+
+  const currentYear = new Date().getFullYear();
+
   const [assetFilter, setAssetFilter] = useState<string>(() => searchParams.get("asset") ?? "all");
   const [categoryFilter, setCategoryFilter] = useState<MovementCategory | "all">(() => {
     const fromUrl = searchParams.get("category");
-    if (!fromUrl) return "all";
-    return isMovementCategory(fromUrl) ? fromUrl : "all";
+    return fromUrl && isMovementCategory(fromUrl) ? fromUrl : "all";
+  });
+  const [yearFilter, setYearFilter] = useState<string>(() => {
+    return searchParams.get("year") ?? String(currentYear);
   });
 
-  // Sincroniza filtros <-> URL (permite deep link e navegação a partir de outras telas)
+  // Sync filters <-> URL
   useEffect(() => {
     const nextAsset = searchParams.get("asset") ?? "all";
-    const nextCategoryRaw = searchParams.get("category");
-    const nextCategory: MovementCategory | "all" = nextCategoryRaw
-      ? isMovementCategory(nextCategoryRaw)
-        ? nextCategoryRaw
-        : "all"
-      : "all";
-
+    const nextCat = searchParams.get("category");
+    const nextYear = searchParams.get("year") ?? String(currentYear);
     if (nextAsset !== assetFilter) setAssetFilter(nextAsset);
-    if (nextCategory !== categoryFilter) setCategoryFilter(nextCategory);
+    if (nextCat && isMovementCategory(nextCat) && nextCat !== categoryFilter) setCategoryFilter(nextCat);
+    if (nextYear !== yearFilter) setYearFilter(nextYear);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -320,38 +263,57 @@ export default function Transactions() {
     const next = new URLSearchParams();
     if (assetFilter !== "all") next.set("asset", assetFilter);
     if (categoryFilter !== "all") next.set("category", categoryFilter);
+    if (yearFilter !== "all") next.set("year", yearFilter);
     setSearchParams(next, { replace: true });
-  }, [assetFilter, categoryFilter, setSearchParams]);
+  }, [assetFilter, categoryFilter, yearFilter, setSearchParams]);
+
+  // Reset to page 1 when any filter changes
+  const prevFiltersRef = useRef({ assetFilter, categoryFilter, yearFilter });
+  useEffect(() => {
+    const prev = prevFiltersRef.current;
+    if (
+      prev.assetFilter !== assetFilter ||
+      prev.categoryFilter !== categoryFilter ||
+      prev.yearFilter !== yearFilter
+    ) {
+      setPage(1);
+      prevFiltersRef.current = { assetFilter, categoryFilter, yearFilter };
+    }
+  }, [assetFilter, categoryFilter, yearFilter]);
 
   const filteredMovements = useMemo(() => {
     return movements.filter((row) => {
-      const matchesAsset = assetFilter === "all" ? true : row.assetId === assetFilter;
-      const matchesCategory = categoryFilter === "all" ? true : row.category === categoryFilter;
-      return matchesAsset && matchesCategory;
+      if (assetFilter !== "all" && row.assetId !== assetFilter) return false;
+      if (categoryFilter !== "all" && row.category !== categoryFilter) return false;
+      if (yearFilter !== "all") {
+        if (new Date(row.date).getFullYear() !== Number(yearFilter)) return false;
+      }
+      return true;
     });
-  }, [movements, assetFilter, categoryFilter]);
+  }, [movements, assetFilter, categoryFilter, yearFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMovements.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = useMemo(
+    () => filteredMovements.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredMovements, safePage],
+  );
 
   const openEdit = (row: MovementRow) => {
     if (row.kind === "buy" || row.kind === "sell") {
       const item = txById.get(row.id);
       if (!item) return;
       setEditTarget({ kind: row.kind, item });
-      setEditOpen(true);
-      return;
-    }
-    if (row.kind === "dividend") {
+    } else if (row.kind === "dividend") {
       const item = divById.get(row.id);
       if (!item) return;
       setEditTarget({ kind: "dividend", item });
-      setEditOpen(true);
-      return;
-    }
-    if (row.kind === "deposit" || row.kind === "withdraw") {
+    } else {
       const item = cashById.get(row.id);
       if (!item) return;
       setEditTarget({ kind: "cash", item });
-      setEditOpen(true);
     }
+    setEditOpen(true);
   };
 
   const deleteRow = async (row: MovementRow) => {
@@ -365,38 +327,44 @@ export default function Transactions() {
       }
       toast({ title: "Movimentação excluída" });
     } catch (err) {
-      console.error("[Transactions] Failed to delete movement:", err);
-      toast({
-        title: "Não foi possível excluir",
-        description: "Tente novamente.",
-        variant: "destructive",
-      });
+      console.error("[Transactions] Failed to delete:", err);
+      toast({ title: "Não foi possível excluir", variant: "destructive" });
     }
   };
-
 
   const monthStart = useMemo(() => startOfMonth(), []);
 
   const monthTotals = useMemo(() => {
-    // Totais do mês respeitando os filtros ativos (ativo + categoria)
-    const inMonth = filteredMovements.filter((m) => m.date >= monthStart);
+    const inPeriod = filteredMovements.filter((m) => {
+      if (yearFilter === "all" || Number(yearFilter) !== currentYear) {
+        // For non-current years, show totals for the whole filtered set
+        return true;
+      }
+      return m.date >= monthStart;
+    });
 
-    const purchases = inMonth
-      .filter((m) => m.kind === "buy")
-      .reduce((sum, m) => sum + m.total, 0);
+    return {
+      purchases: inPeriod.filter((m) => m.kind === "buy").reduce((s, m) => s + m.total, 0),
+      sales: inPeriod.filter((m) => m.kind === "sell").reduce((s, m) => s + m.total, 0),
+      proventos: inPeriod.filter((m) => m.kind === "dividend").reduce((s, m) => s + m.total, 0),
+    };
+  }, [filteredMovements, monthStart, yearFilter, currentYear]);
 
-    const sales = inMonth
-      .filter((m) => m.kind === "sell")
-      .reduce((sum, m) => sum + m.total, 0);
+  const isCurrentYear = yearFilter === String(currentYear);
+  const hasActiveFilter = assetFilter !== "all" || categoryFilter !== "all";
+  const totalsLabel =
+    hasActiveFilter ? "(filtro)" : isCurrentYear ? "(mês)" : `(${yearFilter})`;
 
-    const proventos = inMonth
-      .filter((m) => m.kind === "dividend")
-      .reduce((sum, m) => sum + m.total, 0);
-
-    return { purchases, sales, proventos };
-  }, [filteredMovements, monthStart]);
-
-  const totalsLabelSuffix = assetFilter !== "all" || categoryFilter !== "all" ? "(filtro)" : "(mês)";
+  // Assets that actually have movements in the selected year (for the filter dropdown)
+  const assetsWithMovements = useMemo<Asset[]>(() => {
+    const assetIds = new Set<string>();
+    for (const m of filteredMovements) {
+      if (m.assetId) assetIds.add(m.assetId);
+    }
+    // Also include currently filtered asset even if not in current year view
+    if (assetFilter !== "all") assetIds.add(assetFilter);
+    return assets.filter((a) => assetIds.has(a.id));
+  }, [assets, filteredMovements, assetFilter]);
 
   return (
     <DashboardLayout>
@@ -409,38 +377,53 @@ export default function Transactions() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Movimentações</h1>
             <p className="text-muted-foreground">
-              Histórico de compras, vendas, proventos e aportes/saques • {transactions.length} tx • {dividends.length} proventos • {cashMovements.length} caixa
+              {transactions.length} tx · {dividends.length} proventos · {cashMovements.length} caixa
+              {filteredMovements.length !== movements.length &&
+                ` · ${filteredMovements.length} filtrados`}
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button className="gap-2" onClick={() => navigate("/transactions/new")}>
-              <Plus className="h-4 w-4" />
-              Nova Movimentação
-            </Button>
-          </div>
+          <Button className="gap-2" onClick={() => navigate("/transactions/new")}>
+            <Plus className="h-4 w-4" />
+            Nova Movimentação
+          </Button>
         </motion.header>
 
+        {/* Filters */}
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
           className="rounded-xl border border-border bg-card p-4 shadow-card"
-          aria-label="Filtros"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               <Filter className="h-4 w-4" />
               Filtros
             </div>
+            <div className="flex flex-wrap gap-3 items-center">
+              {/* Year filter */}
+              <Select value={yearFilter} onValueChange={setYearFilter}>
+                <SelectTrigger className="w-[110px]">
+                  <SelectValue placeholder="Ano" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {availableYears.map((y) => (
+                    <SelectItem key={y} value={String(y)}>
+                      {y}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              {/* Asset filter — only shows assets with movements in the period */}
               <Select value={assetFilter} onValueChange={setAssetFilter}>
-                <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Todos os ativos" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os ativos</SelectItem>
-                  {assets.map((a) => (
+                  {assetsWithMovements.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.ticker}
                     </SelectItem>
@@ -448,11 +431,12 @@ export default function Transactions() {
                 </SelectContent>
               </Select>
 
+              {/* Category filter */}
               <Select
                 value={categoryFilter}
                 onValueChange={(v) => setCategoryFilter(v as MovementCategory | "all")}
               >
-                <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectTrigger className="w-full sm:w-[190px]">
                   <SelectValue placeholder="Todas as categorias" />
                 </SelectTrigger>
                 <SelectContent>
@@ -471,8 +455,13 @@ export default function Transactions() {
                 onClick={() => {
                   setAssetFilter("all");
                   setCategoryFilter("all");
+                  setYearFilter(String(currentYear));
                 }}
-                disabled={assetFilter === "all" && categoryFilter === "all"}
+                disabled={
+                  assetFilter === "all" &&
+                  categoryFilter === "all" &&
+                  yearFilter === String(currentYear)
+                }
               >
                 Limpar
               </Button>
@@ -491,30 +480,26 @@ export default function Transactions() {
           assets={assets}
         />
 
-        {decryptIssues.length > 0 ? (
+        {decryptIssues.length > 0 && (
           <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                Alguns dados do cofre não puderam ser lidos ({decryptIssues.join(", ")}). Isso pode acontecer se você trocou de conta/dispositivo ou se esse bloco ficou corrompido.
+                Alguns dados não puderam ser lidos ({decryptIssues.join(", ")}). Restaure um backup
+                se necessário.
               </div>
-
               <div className="flex items-center gap-2">
                 <BackupRestoreDialog
-                  trigger={
-                    <Button variant="outline" size="sm">
-                      Restaurar backup
-                    </Button>
-                  }
+                  trigger={<Button variant="outline" size="sm">Restaurar backup</Button>}
                 />
-
                 <Button variant="ghost" size="sm" onClick={clearDecryptIssues}>
                   Ocultar
                 </Button>
               </div>
             </div>
           </div>
-        ) : null}
+        )}
 
+        {/* Summary cards */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -527,7 +512,7 @@ export default function Transactions() {
                 <ArrowDownLeft className="h-5 w-5 text-chart-2" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Compras {totalsLabelSuffix}</p>
+                <p className="text-sm text-muted-foreground">Compras {totalsLabel}</p>
                 <p className="text-xl font-bold text-foreground tabular-nums">
                   {formatCurrency(monthTotals.purchases)}
                 </p>
@@ -541,7 +526,7 @@ export default function Transactions() {
                 <ArrowUpRight className="h-5 w-5 text-loss" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Vendas {totalsLabelSuffix}</p>
+                <p className="text-sm text-muted-foreground">Vendas {totalsLabel}</p>
                 <p className="text-xl font-bold text-foreground tabular-nums">
                   {formatCurrency(monthTotals.sales)}
                 </p>
@@ -555,7 +540,7 @@ export default function Transactions() {
                 <Coins className="h-5 w-5 text-warning" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Proventos {totalsLabelSuffix}</p>
+                <p className="text-sm text-muted-foreground">Proventos {totalsLabel}</p>
                 <p className="text-xl font-bold text-foreground tabular-nums">
                   {formatCurrency(monthTotals.proventos)}
                 </p>
@@ -564,12 +549,12 @@ export default function Transactions() {
           </div>
         </motion.section>
 
+        {/* List */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           className="rounded-xl border border-border bg-card shadow-card"
-          aria-label="Lista de movimentações"
         >
           <div className="divide-y divide-border">
             {movements.length === 0 ? (
@@ -586,19 +571,18 @@ export default function Transactions() {
                 Nenhuma movimentação encontrada com esses filtros.
               </div>
             ) : (
-              filteredMovements.map((row, index) => {
+              pageRows.map((row, index) => {
                 const config = categoryConfig[row.category];
                 const Icon = config.icon;
 
                 return (
-                  <motion.div
+                  <div
                     key={row.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.3 + index * 0.03 }}
                     className={cn(
                       "flex items-center justify-between p-4 transition-colors",
-                      index % 2 === 0 ? "bg-muted/20 dark:bg-muted/10" : "bg-muted/35 dark:bg-muted/20",
+                      index % 2 === 0
+                        ? "bg-muted/20 dark:bg-muted/10"
+                        : "bg-muted/35 dark:bg-muted/20",
                       "hover:bg-muted/50 dark:hover:bg-muted/30",
                     )}
                   >
@@ -610,7 +594,6 @@ export default function Transactions() {
                               {row.ticker}
                             </span>
                           )}
-
                           <span
                             className={cn(
                               "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium leading-none",
@@ -622,19 +605,17 @@ export default function Transactions() {
                             <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                             {row.label}
                           </span>
-
                           {row.portfolioName && (
                             <span className="text-xs text-muted-foreground truncate">
                               {row.portfolioName}
                             </span>
                           )}
                         </div>
-
-                        {typeof row.shares === "number" && typeof row.price === "number" ? (
+                        {typeof row.shares === "number" && typeof row.price === "number" && (
                           <p className="text-sm text-muted-foreground">
                             {row.shares} × {formatCurrency(row.price)}
                           </p>
-                        ) : null}
+                        )}
                       </div>
                     </div>
 
@@ -643,7 +624,7 @@ export default function Transactions() {
                         <p
                           className={cn(
                             "font-semibold tabular-nums",
-                            row.total < 0 ? "text-loss" : "text-foreground"
+                            row.total < 0 ? "text-loss" : "text-foreground",
                           )}
                         >
                           {row.total < 0 ? "-" : "+"}
@@ -680,21 +661,58 @@ export default function Transactions() {
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => deleteRow(row)}>Excluir</AlertDialogAction>
+                                <AlertDialogAction onClick={() => deleteRow(row)}>
+                                  Excluir
+                                </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                  </motion.div>
+                  </div>
                 );
               })
             )}
           </div>
+
+          {/* Pagination */}
+          {filteredMovements.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between border-t border-border px-6 py-4">
+              <p className="text-sm text-muted-foreground">
+                {(safePage - 1) * PAGE_SIZE + 1}–
+                {Math.min(safePage * PAGE_SIZE, filteredMovements.length)} de{" "}
+                {filteredMovements.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground tabular-nums">
+                  {safePage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage === totalPages}
+                >
+                  Próximo
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </motion.section>
       </div>
     </DashboardLayout>
   );
 }
-

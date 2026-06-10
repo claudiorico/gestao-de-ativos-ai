@@ -1,4 +1,4 @@
-import { Bell, Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut } from "lucide-react";
+import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -134,19 +134,6 @@ export function Header() {
             ) : (
               <Moon className="h-4 w-4 text-muted-foreground" />
             )}
-          </Button>
-        </motion.div>
-
-        {/* Notifications */}
-        <motion.div whileTap={{ scale: 0.95 }} className="hidden lg:block">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="relative h-9 w-9 rounded-lg"
-            title="Notificações"
-          >
-            <Bell className="h-4 w-4 text-muted-foreground" />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary" />
           </Button>
         </motion.div>
 

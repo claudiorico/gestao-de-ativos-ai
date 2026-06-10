@@ -7,6 +7,8 @@ import {
   CheckCircle,
   Calculator,
   Eye,
+  ExternalLink,
+  Info,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
@@ -25,14 +34,19 @@ import {
   computeMonthlyApuration,
   defaultTaxEngineConfig,
   type MonthlyApuration,
+  type TaxEngineOutput,
 } from "@/lib/tax-engine";
 import { TaxAuditDialog } from "@/components/taxes/TaxAuditDialog";
+import * as XLSX from "xlsx";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
   }).format(value);
+
+const formatDate = (ms: number) =>
+  new Intl.DateTimeFormat("pt-BR").format(new Date(ms));
 
 const statusConfig = {
   paid: { label: "Pago", color: "text-success", bg: "bg-success/10", icon: CheckCircle },
@@ -49,12 +63,10 @@ type DarfRow = {
 };
 
 function formatMonthLabel(ym: string) {
-  // ym: YYYY-MM
   const [yStr, mStr] = ym.split("-");
   const y = Number(yStr);
   const m = Number(mStr);
   if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return ym;
-
   const d = new Date(y, m - 1, 1);
   const monthName = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(d);
   const prettyMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
@@ -64,6 +76,311 @@ function formatMonthLabel(ym: string) {
 function sumMonthGain(month: MonthlyApuration) {
   const c = month.categories;
   return (c.B3_EQUITIES?.netResult ?? 0) + (c.B3_FII?.netResult ?? 0) + (c.CRYPTO?.netResult ?? 0);
+}
+
+function irpfCode(type: Asset["type"]): string {
+  switch (type) {
+    case "reit": return "73";
+    case "crypto": return "89";
+    case "investment_fund": return "71";
+    case "fixed_income": return "06";
+    default: return "31"; // stock, etf, international
+  }
+}
+
+// Compute asset positions at end-of-day 31/12/year using FIFO-compatible weighted average
+function computePositionsAt(
+  assets: Asset[],
+  transactions: Transaction[],
+  year: number,
+  portfolioId?: string,
+) {
+  const endMs = new Date(year, 11, 31, 23, 59, 59, 999).getTime();
+  const assetMap = new Map(assets.map((a) => [a.id, a]));
+
+  const positions = new Map<string, { qty: number; totalCost: number }>();
+
+  const relevant = transactions
+    .filter((t) => t.date <= endMs)
+    .filter((t) => !portfolioId || t.portfolioId === portfolioId)
+    .sort((a, b) => a.date - b.date);
+
+  for (const tx of relevant) {
+    const pos = positions.get(tx.assetId) ?? { qty: 0, totalCost: 0 };
+    if (tx.type === "buy") {
+      pos.totalCost += tx.totalValue + (tx.fees ?? 0);
+      pos.qty += tx.shares;
+    } else {
+      const avgCost = pos.qty > 0 ? pos.totalCost / pos.qty : 0;
+      pos.qty = Math.max(0, pos.qty - tx.shares);
+      pos.totalCost = pos.qty * avgCost;
+    }
+    positions.set(tx.assetId, pos);
+  }
+
+  return Array.from(positions.entries())
+    .filter(([, p]) => p.qty > 0.0001)
+    .map(([assetId, p]) => {
+      const asset = assetMap.get(assetId);
+      return {
+        assetId,
+        ticker: asset?.ticker ?? assetId,
+        name: asset?.name ?? assetId,
+        type: asset?.type ?? ("stock" as Asset["type"]),
+        qty: p.qty,
+        avgCost: p.qty > 0 ? p.totalCost / p.qty : 0,
+        totalCost: p.totalCost,
+      };
+    })
+    .sort((a, b) => a.ticker.localeCompare(b.ticker));
+}
+
+function downloadXlsx(wb: XLSX.WorkBook, filename: string) {
+  XLSX.writeFile(wb, filename);
+}
+
+function exportDarfXlsx(darfRows: DarfRow[], year: number) {
+  const data = [
+    ["Mês", "Ganho Líquido (R$)", "Imposto Devido (R$)", "Status"],
+    ...darfRows.map((r) => [r.label, r.gain, r.tax, statusConfig[r.status].label]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = [{ wch: 20 }, { wch: 22 }, { wch: 22 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Apuração DARF");
+  downloadXlsx(wb, `darf-apuracao-${year}.xlsx`);
+}
+
+function buildBensSheet(
+  assets: Asset[],
+  transactions: Transaction[],
+  year: number,
+  portfolioId?: string,
+) {
+  const prevYear = computePositionsAt(assets, transactions, year - 1, portfolioId);
+  const currYear = computePositionsAt(assets, transactions, year, portfolioId);
+
+  const prevMap = new Map(prevYear.map((p) => [p.assetId, p]));
+
+  const allIds = new Set([
+    ...prevYear.map((p) => p.assetId),
+    ...currYear.map((p) => p.assetId),
+  ]);
+
+  const rows: (string | number)[][] = [
+    [
+      "Código do Bem",
+      "Ticker",
+      "Nome",
+      "Tipo",
+      `Custo em 31/12/${year - 1} (R$)`,
+      `Custo em 31/12/${year} (R$)`,
+      `Qtd em 31/12/${year}`,
+    ],
+  ];
+
+  for (const id of allIds) {
+    const prev = prevMap.get(id);
+    const curr = currYear.find((p) => p.assetId === id);
+    const ref = curr ?? prev!;
+    rows.push([
+      irpfCode(ref.type),
+      ref.ticker,
+      ref.name,
+      ref.type,
+      prev?.totalCost ?? 0,
+      curr?.totalCost ?? 0,
+      curr?.qty ?? 0,
+    ]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 16 }, { wch: 24 }, { wch: 24 }, { wch: 16 },
+  ];
+  return ws;
+}
+
+function buildRendimentosSheet(
+  dividends: Dividend[],
+  assets: Asset[],
+  year: number,
+  type: "isento" | "tributavel",
+) {
+  const assetMap = new Map(assets.map((a) => [a.id, a]));
+  const filtered = dividends
+    .filter((d) => new Date(d.paymentDate).getFullYear() === year)
+    .filter((d) =>
+      type === "tributavel" ? d.type === "jcp" : d.type !== "jcp",
+    );
+
+  const rows: (string | number)[][] = [
+    ["Data", "Ticker", "Nome", "Tipo", "Qtd Cotas", "Valor por Cota (R$)", "Valor Bruto (R$)"],
+    ...filtered.map((d) => {
+      const asset = assetMap.get(d.assetId);
+      const gross = Number.isFinite(d.grossValue) && d.grossValue > 0 ? d.grossValue : d.totalValue;
+      return [
+        formatDate(d.paymentDate),
+        asset?.ticker ?? d.assetId,
+        asset?.name ?? d.assetId,
+        d.type,
+        d.shares,
+        d.valuePerShare,
+        gross,
+      ];
+    }),
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 12 }, { wch: 10 }, { wch: 28 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 18 },
+  ];
+  return ws;
+}
+
+function buildApuracaoSheet(darfRows: DarfRow[]) {
+  const rows: (string | number)[][] = [
+    ["Mês", "Ganho Líquido (R$)", "Imposto Devido (R$)", "Status"],
+    ...darfRows.map((r) => [r.label, r.gain, r.tax, statusConfig[r.status].label]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [{ wch: 20 }, { wch: 22 }, { wch: 22 }, { wch: 12 }];
+  return ws;
+}
+
+function exportAuxiliarIrpf(
+  assets: Asset[],
+  transactions: Transaction[],
+  dividends: Dividend[],
+  darfRows: DarfRow[],
+  year: number,
+  portfolioId?: string,
+) {
+  const wb = XLSX.utils.book_new();
+
+  const aviso = XLSX.utils.aoa_to_sheet([
+    ["AVISO IMPORTANTE"],
+    [],
+    [
+      "Este arquivo é um AUXILIAR gerado pelo Cofre Investimentos para uso como referência.",
+    ],
+    [
+      "Os cálculos estão em desenvolvimento e podem conter divergências.",
+    ],
+    [
+      "NÃO substitui declaração oficial, assessoria tributária ou ferramenta homologada pela Receita Federal.",
+    ],
+    ["Verifique todos os valores com sua corretora e/ou contador antes de declarar."],
+    [],
+    [`Ano-calendário: ${year}`],
+    [`Gerado em: ${new Date().toLocaleString("pt-BR")}`],
+  ]);
+  aviso["!cols"] = [{ wch: 80 }];
+  XLSX.utils.book_append_sheet(wb, aviso, "Aviso");
+
+  XLSX.utils.book_append_sheet(wb, buildApuracaoSheet(darfRows), "Apuração Mensal");
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildBensSheet(assets, transactions, year, portfolioId),
+    "Bens e Direitos",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildRendimentosSheet(dividends, assets, year, "isento"),
+    "Rendimentos Isentos",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildRendimentosSheet(dividends, assets, year, "tributavel"),
+    "Rendimentos Tributáveis",
+  );
+
+  downloadXlsx(wb, `auxiliar-irpf-${year}.xlsx`);
+}
+
+// DARF instructions dialog per month
+function DarfInstructionsDialog({
+  row,
+  month,
+  onClose,
+}: {
+  row: DarfRow;
+  month: MonthlyApuration | null;
+  onClose: () => void;
+}) {
+  const [mm, yy] = row.key.split("-");
+
+  const categories: Array<{ label: string; code: string; tax: number }> = [];
+  if (month) {
+    const eq = month.categories.B3_EQUITIES;
+    const fi = month.categories.B3_FII;
+    const cr = month.categories.CRYPTO;
+    if (eq?.taxDue > 0)
+      categories.push({ label: "Ações / ETFs (Renda Variável)", code: "6015", tax: eq.taxDue });
+    if (fi?.taxDue > 0)
+      categories.push({ label: "FIIs (Renda Variável)", code: "6015", tax: fi.taxDue });
+    if (cr?.taxDue > 0)
+      categories.push({ label: "Criptomoedas (Ganho de Capital)", code: "4600", tax: cr.taxDue });
+  }
+
+  if (categories.length === 0) {
+    categories.push({ label: "Renda Variável", code: "6015", tax: row.tax });
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-warning" />
+            Dados para DARF — {row.label}
+          </DialogTitle>
+          <DialogDescription>
+            Referência para preenchimento no Sicalc da Receita Federal.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {categories.map((cat) => (
+            <div key={cat.code + cat.label} className="rounded-lg border border-border p-4 space-y-3">
+              <p className="text-sm font-semibold text-foreground">{cat.label}</p>
+              <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm">
+                <span className="text-muted-foreground">Código da receita</span>
+                <span className="font-mono font-bold text-foreground">{cat.code}</span>
+                <span className="text-muted-foreground">Período de apuração</span>
+                <span className="font-mono text-foreground">{mm}/{yy}</span>
+                <span className="text-muted-foreground">Valor principal</span>
+                <span className="font-mono font-bold text-warning">{formatCurrency(cat.tax)}</span>
+                <span className="text-muted-foreground">Vencimento</span>
+                <span className="text-foreground text-xs">último dia útil do mês seguinte</span>
+              </div>
+            </div>
+          ))}
+
+          <div className="rounded-lg border border-warning/20 bg-warning/5 p-3">
+            <div className="flex items-start gap-2 text-xs text-warning">
+              <Info className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>
+                Estes valores são <strong>auxiliares</strong> e estão em desenvolvimento — podem conter
+                divergências. Confira com sua corretora (nota de corretagem) e seu contador antes de
+                emitir o DARF.
+              </span>
+            </div>
+          </div>
+
+          <a
+            href="https://sicalcweb.receita.fazenda.gov.br/SICALCWEB/pages/emissaoDarf/sicalcWebEmissaoDarf.jsf"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+          >
+            Abrir Sicalc — Receita Federal
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function Taxes() {
@@ -78,6 +395,8 @@ export default function Taxes() {
 
   const [auditMonth, setAuditMonth] = useState<MonthlyApuration | null>(null);
   const [auditOpen, setAuditOpen] = useState(false);
+
+  const [darfDialogRow, setDarfDialogRow] = useState<DarfRow | null>(null);
 
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
@@ -123,11 +442,7 @@ export default function Taxes() {
 
   useEffect(() => {
     if (!isUnlocked) return;
-
-    const onVaultChange = () => {
-      load();
-    };
-
+    const onVaultChange = () => load();
     window.addEventListener("vault-data-changed", onVaultChange);
     return () => window.removeEventListener("vault-data-changed", onVaultChange);
   }, [isUnlocked, load]);
@@ -135,15 +450,12 @@ export default function Taxes() {
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     years.add(currentYear);
-
     for (const t of transactions) years.add(new Date(t.date).getFullYear());
     for (const d of dividends) years.add(new Date(d.paymentDate).getFullYear());
-
     return Array.from(years).sort((a, b) => b - a);
   }, [currentYear, dividends, transactions]);
 
   useEffect(() => {
-    // Mantém seleção válida caso o usuário não tenha dados no ano atual.
     if (availableYears.length === 0) return;
     if (!availableYears.includes(selectedYear)) setSelectedYear(availableYears[0]);
   }, [availableYears, selectedYear]);
@@ -154,9 +466,8 @@ export default function Taxes() {
       .filter((d) => new Date(d.paymentDate).getFullYear() === selectedYear);
   }, [dividends, selectedPortfolioId, selectedYear]);
 
-  const apuration = useMemo(() => {
+  const apuration = useMemo((): TaxEngineOutput | null => {
     if (!isUnlocked) return null;
-
     return computeMonthlyApuration({
       assets,
       transactions,
@@ -168,7 +479,6 @@ export default function Taxes() {
 
   const summary = useMemo(() => {
     const months = apuration?.months ?? [];
-
     const totalGain = months.reduce((acc, m) => acc + sumMonthGain(m), 0);
     const taxDue = months.reduce((acc, m) => acc + (m.totalTaxDue ?? 0), 0);
 
@@ -188,21 +498,14 @@ export default function Taxes() {
 
     return { totalGain, taxDue, exemptDividends, taxableDividends };
   }, [apuration, filteredDividends]);
+
   const darfRows: DarfRow[] = useMemo(() => {
     if (!apuration) return [];
-
     return apuration.months.map((m) => {
       const gain = sumMonthGain(m);
       const tax = m.totalTaxDue ?? 0;
       const status: DarfRow["status"] = tax <= 0 ? "exempt" : "pending";
-
-      return {
-        key: m.month,
-        label: formatMonthLabel(m.month),
-        gain,
-        tax,
-        status,
-      };
+      return { key: m.month, label: formatMonthLabel(m.month), gain, tax, status };
     });
   }, [apuration]);
 
@@ -214,6 +517,10 @@ export default function Taxes() {
     },
     [apuration],
   );
+
+  const portfolioFilter = selectedPortfolioId === "all" ? undefined : selectedPortfolioId;
+
+  const hasData = isUnlocked && !isLoading && darfRows.length > 0;
 
   return (
     <DashboardLayout>
@@ -227,6 +534,14 @@ export default function Taxes() {
         title={auditMonth ? `Cálculo — ${formatMonthLabel(auditMonth.month)}` : "Cálculo"}
       />
 
+      {darfDialogRow && (
+        <DarfInstructionsDialog
+          row={darfDialogRow}
+          month={apuration?.months.find((m) => m.month === darfDialogRow.key) ?? null}
+          onClose={() => setDarfDialogRow(null)}
+        />
+      )}
+
       <div className="space-y-6">
         {/* Page Header */}
         <motion.div
@@ -239,16 +554,44 @@ export default function Taxes() {
             <p className="text-muted-foreground">Controle de DARF e preparação para DIRPF</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" className="gap-2" disabled>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={!hasData}
+              onClick={() => exportDarfXlsx(darfRows, selectedYear)}
+            >
               <Download className="h-4 w-4" />
               Exportar Excel
             </Button>
-            <Button className="gap-2" disabled>
+            <Button
+              className="gap-2"
+              disabled={!hasData}
+              onClick={() =>
+                exportAuxiliarIrpf(
+                  assets,
+                  transactions,
+                  filteredDividends,
+                  darfRows,
+                  selectedYear,
+                  portfolioFilter,
+                )
+              }
+            >
               <FileText className="h-4 w-4" />
-              Gerar Relatório IRPF
+              Auxiliar IRPF
             </Button>
           </div>
         </motion.div>
+
+        {/* Disclaimer */}
+        <div className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning">
+          <Info className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Os cálculos desta tela são <strong>auxiliares e estão em desenvolvimento</strong> — podem
+            conter divergências. Não substituem declaração oficial, assessoria tributária ou
+            ferramenta homologada pela Receita Federal.
+          </span>
+        </div>
 
         {/* Filters */}
         <motion.div
@@ -431,7 +774,7 @@ export default function Taxes() {
                           className={cn(
                             "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
                             cfg.bg,
-                            cfg.color
+                            cfg.color,
                           )}
                         >
                           <Icon className="h-3 w-3" />
@@ -452,13 +795,14 @@ export default function Taxes() {
                           </Button>
 
                           {darf.status === "pending" && (
-                            <Button size="sm" variant="outline" disabled>
-                              Gerar DARF
-                            </Button>
-                          )}
-                          {darf.status === "paid" && (
-                            <Button size="sm" variant="ghost" className="text-muted-foreground" disabled>
-                              Ver comprovante
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-warning border-warning/30 hover:bg-warning/10"
+                              onClick={() => setDarfDialogRow(darf)}
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              Dados DARF
                             </Button>
                           )}
                           {darf.status === "exempt" && (
@@ -483,28 +827,69 @@ export default function Taxes() {
         >
           <div className="rounded-xl border border-border bg-card p-6 shadow-card">
             <h4 className="font-semibold text-foreground mb-2">Bens e Direitos</h4>
-            <p className="text-sm text-muted-foreground mb-4">Declaração de posições em 31/12</p>
-            <Button variant="outline" className="w-full gap-2" disabled>
+            <p className="text-sm text-muted-foreground mb-4">
+              Posições em 31/12/{selectedYear} com custo médio
+            </p>
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              disabled={!isUnlocked || isLoading}
+              onClick={() => {
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(
+                  wb,
+                  buildBensSheet(assets, transactions, selectedYear, portfolioFilter),
+                  "Bens e Direitos",
+                );
+                downloadXlsx(wb, `bens-e-direitos-${selectedYear}.xlsx`);
+              }}
+            >
               <Download className="h-4 w-4" />
-              Exportar
+              Exportar XLSX
             </Button>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-6 shadow-card">
             <h4 className="font-semibold text-foreground mb-2">Rendimentos Isentos</h4>
             <p className="text-sm text-muted-foreground mb-4">Dividendos e LCI/LCA recebidos</p>
-            <Button variant="outline" className="w-full gap-2" disabled>
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              disabled={!isUnlocked || isLoading}
+              onClick={() => {
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(
+                  wb,
+                  buildRendimentosSheet(filteredDividends, assets, selectedYear, "isento"),
+                  "Rendimentos Isentos",
+                );
+                downloadXlsx(wb, `rendimentos-isentos-${selectedYear}.xlsx`);
+              }}
+            >
               <Download className="h-4 w-4" />
-              Exportar
+              Exportar XLSX
             </Button>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-6 shadow-card">
             <h4 className="font-semibold text-foreground mb-2">Rendimentos Tributáveis</h4>
             <p className="text-sm text-muted-foreground mb-4">JCP e aluguéis recebidos</p>
-            <Button variant="outline" className="w-full gap-2" disabled>
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              disabled={!isUnlocked || isLoading}
+              onClick={() => {
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(
+                  wb,
+                  buildRendimentosSheet(filteredDividends, assets, selectedYear, "tributavel"),
+                  "Rendimentos Tributáveis",
+                );
+                downloadXlsx(wb, `rendimentos-tributaveis-${selectedYear}.xlsx`);
+              }}
+            >
               <Download className="h-4 w-4" />
-              Exportar
+              Exportar XLSX
             </Button>
           </div>
         </motion.div>
