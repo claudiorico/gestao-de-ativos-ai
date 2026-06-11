@@ -1,4 +1,4 @@
-import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut } from "lucide-react";
+import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut, Heart } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getStoredTheme, applyTheme, resolveTheme } from "@/lib/theme";
 import { motion } from "framer-motion";
