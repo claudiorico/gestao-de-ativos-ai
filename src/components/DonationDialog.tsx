@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Copy, Check, Heart, Mail, Shield } from "lucide-react";
 import { Link } from "react-router-dom";
+import QRCode from "react-qr-code";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,6 +15,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 const PIX_KEY = "0fd1dcd7-4db0-4888-bd44-6384b7d3d888";
 const BTC_ADDRESS = "bc1qtf0y90vgxvq39wvypddzm034jz7c62xj7pf64x";
 const SUPPORT_EMAIL = "gestaodegastosapp@gmail.com";
+
+// Gera payload EMV estático para PIX (padrão Banco Central do Brasil)
+function crc16(str: string): string {
+  let crc = 0xffff;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= str.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, "0");
+}
+
+function buildPixPayload(key: string): string {
+  const name = "Claudio Rico";
+  const city = "SAO PAULO";
+  const inner = `0014br.gov.bcb.pix0136${key}`;
+  const ma = `26${String(inner.length).padStart(2, "0")}${inner}`;
+  const nm = `59${String(name.length).padStart(2, "0")}${name}`;
+  const ct = `60${String(city.length).padStart(2, "0")}${city}`;
+  const base = `000201${ma}52040000530398658${nm}${ct}62070503***6304`;
+  return base + crc16(base);
+}
+
+const PIX_PAYLOAD = buildPixPayload(PIX_KEY);
+const BTC_URI = `bitcoin:${BTC_ADDRESS}`;
 
 function CopyField({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -41,17 +68,27 @@ function CopyField({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function DonationDialog() {
+function QRBlock({ value }: { value: string }) {
+  return (
+    <div className="flex justify-center rounded-xl bg-white p-4">
+      <QRCode value={value} size={176} />
+    </div>
+  );
+}
+
+export function DonationDialog({ trigger }: { trigger?: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          className="gap-2 border-pink-500/30 hover:border-pink-500/60 hover:bg-pink-500/5 text-pink-500 hover:text-pink-500"
-        >
-          <Heart className="h-4 w-4" />
-          Apoie o desenvolvedor
-        </Button>
+        {trigger ?? (
+          <Button
+            variant="outline"
+            className="gap-2 border-pink-500/30 hover:border-pink-500/60 hover:bg-pink-500/5 text-pink-500 hover:text-pink-500"
+          >
+            <Heart className="h-4 w-4" />
+            Apoie o desenvolvedor
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
@@ -72,11 +109,15 @@ export function DonationDialog() {
               ₿ Bitcoin
             </TabsTrigger>
           </TabsList>
+
           <TabsContent value="pix" className="space-y-3 pt-2">
+            <QRBlock value={PIX_PAYLOAD} />
             <CopyField label="Chave PIX (aleatória)" value={PIX_KEY} />
             <p className="text-xs text-muted-foreground">Nubank · Claudio Luciano Rico</p>
           </TabsContent>
+
           <TabsContent value="btc" className="space-y-3 pt-2">
+            <QRBlock value={BTC_URI} />
             <CopyField label="Endereço Bitcoin" value={BTC_ADDRESS} />
             <p className="text-xs text-muted-foreground">Rede Bitcoin · Native SegWit (bc1)</p>
           </TabsContent>

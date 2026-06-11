@@ -1,14 +1,15 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
 User-agent: *
 Allow: /
+Allow: /privacy
+Allow: /ajuda
+Disallow: /home
+Disallow: /portfolio
+Disallow: /balancing
+Disallow: /transactions
+Disallow: /dividends
+Disallow: /taxes
+Disallow: /analytics
+Disallow: /settings
+Disallow: /auth/
+
+Sitemap: https://cofreinvestimentos.com.br/sitemap.xml
