@@ -179,6 +179,11 @@ export function toYearMonth(dateMs: number): YearMonth {
   return `${y}-${m}`;
 }
 
+function toYYYYMMDD(dateMs: number): string {
+  const d = new Date(dateMs);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
 export function inferTaxMarket(asset: Asset): TaxMarket {
   return asset.type === "crypto" ? "CRYPTO" : "B3";
 }
@@ -254,10 +259,11 @@ type RunningPosition = {
 /**
  * Apuração mensal (DARF) para o ano, com trilha de auditoria.
  *
- * Regras MVP:
- * - Sem day trade (não separa DT)
- * - Compensação de prejuízo por categoria (B3_EQUITIES vs B3_FII vs CRYPTO)
- * - Isenção por volume de vendas no mês (equities e cripto)
+ * Regras:
+ * - Separação de Day Trade (alíquota 20%, compensação própria, sem isenção)
+ * - Isenção de R$ 20k de vendas mensais restrita a Ações swing trade
+ * - ETFs e BDRs tributados normalmente a 15%
+ * - Compensação de prejuízo por categoria
  */
 export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput {
   const config = mergeConfig(input.config);
@@ -266,19 +272,15 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
 
   const warnings: string[] = [];
 
-  const txs = input.transactions
+  // 1) Filtrar transações básicas para o ano
+  const baseTxs = input.transactions
     .filter((t) => (input.portfolioId ? t.portfolioId === input.portfolioId : true))
     .filter((t) => {
       const y = new Date(t.date).getFullYear();
       return y === input.year;
-    })
-    .slice()
-    .sort((a, b) => a.date - b.date);
+    });
 
-  // positions por ativo (para custo médio)
-  const posByAsset = new Map<string, RunningPosition>();
-
-  // buckets por mês e categoria
+  // Buckets por mês e categoria
   type MonthBucket = {
     salesGross: Record<TaxCategory, number>;
     netResult: Record<TaxCategory, number>;
@@ -319,16 +321,172 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
     return blank;
   };
 
-  // 1) Percorre transações do ano em ordem cronológica para gerar ganhos por venda
-  for (const t of txs) {
+  // Agrupar por dia e ativo para detectar e calcular Day Trade
+  const groups: Record<string, Transaction[]> = {};
+  for (const t of baseTxs) {
+    const asset = assetsById.get(t.assetId);
+    if (!asset || !isCapitalGainsTaxable(asset)) continue;
+    const dayKey = toYYYYMMDD(t.date);
+    const groupKey = `${dayKey}_${t.assetId}`;
+    if (!groups[groupKey]) groups[groupKey] = [];
+    groups[groupKey].push(t);
+  }
+
+  const processedTxs: Transaction[] = [];
+  
+  // Map de YearMonth -> total de vendas brutas, ganho líquido e auditorias de Day Trade
+  const dayTradeMonthlyStats: Record<
+    YearMonth,
+    { salesGross: number; netResult: number; ops: GainOperationAudit[] }
+  > = {};
+
+  const ensureDtMonthStats = (ym: YearMonth) => {
+    if (!dayTradeMonthlyStats[ym]) {
+      dayTradeMonthlyStats[ym] = { salesGross: 0, netResult: 0, ops: [] };
+    }
+    return dayTradeMonthlyStats[ym];
+  };
+
+  for (const groupKey in groups) {
+    const group = groups[groupKey];
+    const assetId = group[0].assetId;
+    const asset = assetsById.get(assetId)!;
+    const category = inferTaxCategory(asset);
+
+    const buys = group.filter((t) => t.type === "buy");
+    const sells = group.filter((t) => t.type === "sell");
+
+    const totalBuyQty = buys.reduce((sum, t) => sum + safeNumber(t.shares), 0);
+    const totalSellQty = sells.reduce((sum, t) => sum + safeNumber(t.shares), 0);
+
+    if (totalBuyQty > 0 && totalSellQty > 0) {
+      // Ocorre Day Trade
+      const dtQty = Math.min(totalBuyQty, totalSellQty);
+
+      const totalBuyVal = buys.reduce(
+        (sum, t) => sum + safeNumber(t.shares) * safeNumber(t.pricePerShare),
+        0
+      );
+      const avgBuyPrice = totalBuyVal / totalBuyQty;
+
+      const totalSellVal = sells.reduce(
+        (sum, t) => sum + safeNumber(t.shares) * safeNumber(t.pricePerShare),
+        0
+      );
+      const avgSellPrice = totalSellVal / totalSellQty;
+
+      const totalBuyFees = buys.reduce((sum, t) => sum + safeNumber(t.fees), 0);
+      const totalSellFees = sells.reduce((sum, t) => sum + safeNumber(t.fees), 0);
+
+      const dtBuyFees = totalBuyFees * (dtQty / totalBuyQty);
+      const dtSellFees = totalSellFees * (dtQty / totalSellQty);
+      const dtFees = dtBuyFees + dtSellFees;
+
+      const dtProceedsGross = dtQty * avgSellPrice;
+      const dtProceedsNet = dtProceedsGross - (config.includeFeesInGain ? dtFees : 0);
+      
+      const dtGain = config.includeFeesInGain
+        ? dtProceedsNet - (dtQty * avgBuyPrice)
+        : dtProceedsGross - (dtQty * avgBuyPrice);
+
+      const firstTx = buys[0] || sells[0];
+      const ym = toYearMonth(firstTx.date);
+
+      const dtAudit: GainOperationAudit = {
+        transactionId: `dt-${assetId}-${groupKey}`,
+        date: firstTx.date,
+        assetId,
+        ticker: asset.ticker,
+        category,
+        type: "sell",
+        quantity: dtQty,
+        proceedsGross: dtProceedsGross,
+        fees: dtFees,
+        proceedsNet: dtProceedsGross - dtFees,
+        costBasis: dtQty * avgBuyPrice,
+        gain: dtGain,
+        positionBefore: { quantity: totalBuyQty, avgCost: avgBuyPrice },
+        positionAfter: { quantity: 0, avgCost: avgBuyPrice },
+        warnings: [
+          category === "B3_EQUITIES"
+            ? "Operação de Day Trade (alíquota 20%, sem isenção)"
+            : "Casamento intradia (Day Trade)",
+        ],
+      };
+
+      if (category === "B3_EQUITIES") {
+        const stats = ensureDtMonthStats(ym);
+        stats.salesGross += dtProceedsGross;
+        stats.netResult += dtGain;
+        stats.ops.push(dtAudit);
+        // Garante que o mês existe no bucket mesmo que não haja Swing Trade
+        ensureBucket(ym);
+      } else {
+        // Para FII e Cripto, joga direto no bucket mensal para apurar junto com swing trade
+        const bucket = ensureBucket(ym);
+        bucket.ops[category].push(dtAudit);
+        bucket.salesGross[category] += dtProceedsGross;
+        bucket.netResult[category] += dtGain;
+      }
+
+      // Adicionar resíduos de Swing Trade para o loop cronológico
+      if (totalBuyQty > dtQty) {
+        const residQty = totalBuyQty - dtQty;
+        const residFees = totalBuyFees * (residQty / totalBuyQty);
+        processedTxs.push({
+          id: `resid-buy-${assetId}-${groupKey}`,
+          assetId,
+          portfolioId: buys[0].portfolioId,
+          type: "buy",
+          shares: residQty,
+          pricePerShare: avgBuyPrice,
+          totalValue: residQty * avgBuyPrice,
+          fees: residFees,
+          date: buys[0].date,
+          createdAt: Date.now(),
+        });
+      }
+
+      if (totalSellQty > dtQty) {
+        const residQty = totalSellQty - dtQty;
+        const residFees = totalSellFees * (residQty / totalSellQty);
+        processedTxs.push({
+          id: `resid-sell-${assetId}-${groupKey}`,
+          assetId,
+          portfolioId: sells[0].portfolioId,
+          type: "sell",
+          shares: residQty,
+          pricePerShare: avgSellPrice,
+          totalValue: residQty * avgSellPrice,
+          fees: residFees,
+          date: sells[0].date,
+          createdAt: Date.now(),
+        });
+      }
+    } else {
+      // Não ocorre Day Trade
+      processedTxs.push(...group);
+    }
+  }
+
+  // Ordenar transações processadas (compras sempre antes de vendas no mesmo timestamp)
+  processedTxs.sort((a, b) => {
+    if (a.date !== b.date) return a.date - b.date;
+    if (a.type === "buy" && b.type === "sell") return -1;
+    if (a.type === "sell" && b.type === "buy") return 1;
+    return 0;
+  });
+
+  // positions por ativo (para custo médio de Swing Trade)
+  const posByAsset = new Map<string, RunningPosition>();
+
+  // 2) Percorre transações de Swing Trade em ordem cronológica para gerar ganhos
+  for (const t of processedTxs) {
     const asset = assetsById.get(t.assetId);
     if (!asset) {
       warnings.push(`Transação ${t.id} referencia assetId inexistente (${t.assetId}).`);
       continue;
     }
-
-    // Fundos e renda fixa: IR recolhido na fonte / come-cotas, sem DARF de ganho de capital
-    if (!isCapitalGainsTaxable(asset)) continue;
 
     const category = inferTaxCategory(asset);
 
@@ -346,7 +504,6 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
     const currentPos = posByAsset.get(asset.id) ?? { qty: 0, totalCost: 0 };
 
     if (t.type === "buy") {
-      // custo: soma de (qty*price) + fees (quando aplicável)
       const gross = qty * price;
       const cost = gross + (config.includeFeesInGain ? fees : 0);
 
@@ -427,7 +584,7 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
     }
   }
 
-  // 2) Consolida meses do ano (inclusive meses sem movimentação? MVP: só os com movimento)
+  // 3) Consolida meses do ano
   const monthsSorted = Array.from(buckets.keys()).sort();
 
   const lossCarry: Record<TaxCategory, number> = {
@@ -435,6 +592,8 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
     B3_FII: 0,
     CRYPTO: 0,
   };
+
+  let dayTradeLossCarry = 0; // Prejuízo acumulado DT para B3_EQUITIES
 
   const months: MonthlyApuration[] = [];
 
@@ -450,91 +609,187 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
 
         const lossCarryIn = lossCarry[cat]; // <= 0
 
-        // isenções
         let isExempt = false;
         let exemptReason: string | undefined;
 
-        if (cat === "B3_EQUITIES") {
-          if (salesGross > 0 && salesGross <= config.exemptions.b3EquitiesMonthlySalesLimit) {
-            isExempt = true;
-            exemptReason = `Vendas no mês <= ${config.exemptions.b3EquitiesMonthlySalesLimit.toLocaleString("pt-BR")} (isento)`;
-          }
-        }
-
-        if (cat === "CRYPTO") {
-          if (salesGross > 0 && salesGross <= config.exemptions.cryptoMonthlySalesLimit) {
-            isExempt = true;
-            exemptReason = `Vendas no mês <= ${config.exemptions.cryptoMonthlySalesLimit.toLocaleString("pt-BR")} (isento)`;
-          }
-        }
-
-        // regra MVP: se isento, não calcula imposto; ainda assim pode acumular prejuízo
         let taxableBase = 0;
         let lossUsed = 0;
         let taxDue = 0;
-
-        if (!isExempt) {
-          const baseBeforeLoss = netResult;
-
-          if (baseBeforeLoss > 0 && lossCarryIn < 0) {
-            const usable = Math.min(baseBeforeLoss, Math.abs(lossCarryIn));
-            lossUsed = usable;
-            taxableBase = Math.max(0, baseBeforeLoss - usable);
-          } else {
-            taxableBase = Math.max(0, baseBeforeLoss);
-          }
-
-          if (taxableBase > 0) {
-            if (cat === "B3_EQUITIES") taxDue = taxableBase * config.rates.b3Equities;
-            if (cat === "B3_FII") taxDue = taxableBase * config.rates.b3Fii;
-            if (cat === "CRYPTO") taxDue = computeCryptoTax(config.rates.crypto, taxableBase);
-          }
-        } else {
-          // Isento: base tributável e imposto são 0.
-          taxableBase = 0;
-          taxDue = 0;
-        }
-
-        // atualiza lossCarryOut
-        // lossCarry é sempre um número <= 0 (prejuízo acumulado)
-        // netResult negativo aumenta o prejuízo
-        // netResult positivo pode consumir prejuízo (lossUsed)
         let lossCarryOut = lossCarryIn;
 
-        if (!isExempt) {
-          // mês tributável: aplica consumo
-          lossCarryOut = lossCarryIn + lossUsed;
+        if (cat === "B3_EQUITIES") {
+          // Separar ações de outros ativos para calcular a isenção
+          const swingOps = ops;
+          const salesGrossStocksOnly = swingOps
+            .filter((o) => assetsById.get(o.assetId)?.type === "stock")
+            .reduce((sum, o) => sum + o.proceedsGross, 0);
 
-          // se ainda assim o mês foi negativo, acumula
-          if (netResult < 0) lossCarryOut += netResult; // netResult é negativo
+          const isStocksExempt =
+            salesGrossStocksOnly > 0 &&
+            salesGrossStocksOnly <= config.exemptions.b3EquitiesMonthlySalesLimit;
 
-          // se mês foi positivo e excedeu prejuízo, lossCarryOut pode ir a 0
-          if (lossCarryOut > 0) lossCarryOut = 0;
-        } else {
-          // mês isento
-          if (config.accumulateLossOnExemptMonths && netResult < 0) {
-            lossCarryOut = lossCarryIn + netResult;
-          } else {
-            lossCarryOut = lossCarryIn;
+          if (isStocksExempt) {
+            isExempt = true;
+            exemptReason = `Isenção de Ações ativa (vendas de ações R$ ${salesGrossStocksOnly.toLocaleString(
+              "pt-BR"
+            )} <= R$ 20.000). ETFs/BDRs/DayTrade são tributados.`;
           }
+
+          let swingTaxableNetResult = 0;
+          let swingExemptNetResult = 0;
+
+          for (const op of swingOps) {
+            const assetType = assetsById.get(op.assetId)?.type;
+            if (assetType === "stock" && isStocksExempt) {
+              swingExemptNetResult += op.gain;
+              op.warnings.push("Operação de Ações isenta (vendas de ações no mês <= R$ 20.000)");
+            } else {
+              swingTaxableNetResult += op.gain;
+            }
+          }
+
+          // Recuperar estatísticas de Day Trade
+          const dtStats = dayTradeMonthlyStats[ym] || { salesGross: 0, netResult: 0, ops: [] };
+          const dtNetResult = dtStats.netResult;
+          const dtSalesGross = dtStats.salesGross;
+          const dtOps = dtStats.ops;
+
+          // Compensar Swing Trade
+          const swingBaseBeforeLoss = swingTaxableNetResult;
+          let swingLossUsed = 0;
+          let swingTaxableBase = 0;
+
+          if (swingBaseBeforeLoss > 0 && lossCarryIn < 0) {
+            swingLossUsed = Math.min(swingBaseBeforeLoss, Math.abs(lossCarryIn));
+            swingTaxableBase = swingBaseBeforeLoss - swingLossUsed;
+          } else {
+            swingTaxableBase = Math.max(0, swingBaseBeforeLoss);
+          }
+
+          const swingTaxDue = swingTaxableBase * config.rates.b3Equities;
+
+          // Atualizar Swing lossCarryOut
+          let swingLossCarryOut = lossCarryIn + swingLossUsed;
+          if (swingTaxableNetResult < 0) {
+            swingLossCarryOut += swingTaxableNetResult;
+          }
+          if (isStocksExempt && config.accumulateLossOnExemptMonths && swingExemptNetResult < 0) {
+            swingLossCarryOut += swingExemptNetResult;
+          }
+          if (swingLossCarryOut > 0) swingLossCarryOut = 0;
+          lossCarryOut = swingLossCarryOut;
+          lossCarry[cat] = swingLossCarryOut;
+          lossUsed = swingLossUsed;
+
+          // Compensar Day Trade
+          const dtBaseBeforeLoss = dtNetResult;
+          const dtLossCarryIn = dayTradeLossCarry;
+          let dtLossUsed = 0;
+          let dtTaxableBase = 0;
+
+          if (dtBaseBeforeLoss > 0 && dtLossCarryIn < 0) {
+            dtLossUsed = Math.min(dtBaseBeforeLoss, Math.abs(dtLossCarryIn));
+            dtTaxableBase = dtBaseBeforeLoss - dtLossUsed;
+          } else {
+            dtTaxableBase = Math.max(0, dtBaseBeforeLoss);
+          }
+
+          const dtTaxDue = dtTaxableBase * 0.20; // Day Trade = 20%
+
+          let dtLossCarryOut = dtLossCarryIn + dtLossUsed;
+          if (dtNetResult < 0) {
+            dtLossCarryOut += dtNetResult;
+          }
+          if (dtLossCarryOut > 0) dtLossCarryOut = 0;
+          dayTradeLossCarry = dtLossCarryOut;
+
+          // Avisos informativos de Day Trade na categoria
+          const formatBrl = (v: number) =>
+            new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+          if (dtNetResult !== 0 || dtLossCarryIn < 0) {
+            catWarnings.push(
+              `[Day Trade] Resultado: ${formatBrl(dtNetResult)} | Compensação usada: ${formatBrl(
+                dtLossUsed
+              )} | Imposto devido (20%): ${formatBrl(dtTaxDue)} | Prejuízo acumulado DT: de ${formatBrl(
+                dtLossCarryIn
+              )} para ${formatBrl(dtLossCarryOut)}`
+            );
+          }
+
+          const totalTaxDueForCat = swingTaxDue + dtTaxDue;
+          isExempt = isStocksExempt && totalTaxDueForCat === 0;
+
+          acc[cat] = {
+            category: cat,
+            salesTotalGross: salesGross + dtSalesGross,
+            netResult: swingTaxableNetResult + swingExemptNetResult + dtNetResult,
+            lossCarryIn,
+            lossUsed: swingLossUsed + dtLossUsed,
+            lossCarryOut,
+            isExempt,
+            exemptReason: isStocksExempt ? exemptReason : undefined,
+            taxableBase: swingTaxableBase + dtTaxableBase,
+            taxDue: totalTaxDueForCat,
+            operations: [...swingOps, ...dtOps],
+            warnings: catWarnings,
+          };
+        } else {
+          // Categorias FII e CRYPTO (lógica padrão mantida)
+          if (cat === "CRYPTO") {
+            if (salesGross > 0 && salesGross <= config.exemptions.cryptoMonthlySalesLimit) {
+              isExempt = true;
+              exemptReason = `Vendas no mês <= ${config.exemptions.cryptoMonthlySalesLimit.toLocaleString(
+                "pt-BR"
+              )} (isento)`;
+            }
+          }
+
+          if (!isExempt) {
+            const baseBeforeLoss = netResult;
+
+            if (baseBeforeLoss > 0 && lossCarryIn < 0) {
+              lossUsed = Math.min(baseBeforeLoss, Math.abs(lossCarryIn));
+              taxableBase = Math.max(0, baseBeforeLoss - lossUsed);
+            } else {
+              taxableBase = Math.max(0, baseBeforeLoss);
+            }
+
+            if (taxableBase > 0) {
+              if (cat === "B3_FII") taxDue = taxableBase * config.rates.b3Fii;
+              if (cat === "CRYPTO") taxDue = computeCryptoTax(config.rates.crypto, taxableBase);
+            }
+          }
+
+          if (!isExempt) {
+            lossCarryOut = lossCarryIn + lossUsed;
+            if (netResult < 0) lossCarryOut += netResult;
+            if (lossCarryOut > 0) lossCarryOut = 0;
+          } else {
+            if (config.accumulateLossOnExemptMonths && netResult < 0) {
+              lossCarryOut = lossCarryIn + netResult;
+            } else {
+              lossCarryOut = lossCarryIn;
+            }
+          }
+
+          lossCarry[cat] = lossCarryOut;
+
+          acc[cat] = {
+            category: cat,
+            salesTotalGross: salesGross,
+            netResult,
+            lossCarryIn,
+            lossUsed,
+            lossCarryOut,
+            isExempt,
+            exemptReason,
+            taxableBase,
+            taxDue,
+            operations: ops,
+            warnings: catWarnings,
+          };
         }
-
-        lossCarry[cat] = lossCarryOut;
-
-        acc[cat] = {
-          category: cat,
-          salesTotalGross: salesGross,
-          netResult,
-          lossCarryIn,
-          lossUsed,
-          lossCarryOut,
-          isExempt,
-          exemptReason,
-          taxableBase,
-          taxDue,
-          operations: ops,
-          warnings: catWarnings,
-        };
 
         return acc;
       },
@@ -550,6 +805,7 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
       totalTaxDue,
     });
   }
+
 
   return {
     year: input.year,

@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, Eye, EyeOff, Lock, AlertTriangle, HardDrive } from 'lucide-react';
+import { Shield, Eye, EyeOff, Lock, AlertTriangle, HardDrive, Database, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,7 +20,7 @@ interface VaultSetupProps {
 }
 
 export function VaultSetup({ onComplete }: VaultSetupProps) {
-  const { initializeVault, isLoading } = useSecureStorage();
+  const { initializeVault, isLoading, localHasData, migrateFromLocal } = useSecureStorage();
   const { user } = useAuthUser();
   const namespace = user?.uid || 'default';
 
@@ -35,10 +35,37 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
   const [bioSupported, setBioSupported] = useState(false);
   const [enrollBio, setEnrollBio] = useState(false);
 
+  // Migration state
+  const [showMigration, setShowMigration] = useState(false);
+  const [migPassword, setMigPassword] = useState('');
+  const [migError, setMigError] = useState('');
+  const [isMigrating, setIsMigrating] = useState(false);
+
   useEffect(() => {
     isPersistentStorageEnabled().then(setPersisted).catch(() => setPersisted(null));
     isBiometricSupported().then(setBioSupported).catch(() => setBioSupported(false));
   }, []);
+
+  // Show migration view by default when local data is available.
+  useEffect(() => {
+    if (localHasData) setShowMigration(true);
+  }, [localHasData]);
+
+  const handleMigrate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMigError('');
+    if (!migPassword) { setMigError('Informe a senha do cofre local'); return; }
+    setIsMigrating(true);
+    try {
+      await migrateFromLocal(migPassword);
+      toast({ title: 'Migração concluída', description: 'Seus dados locais foram migrados para sua conta Google.' });
+      onComplete();
+    } catch (err) {
+      setMigError(err instanceof Error ? err.message : 'Erro ao migrar dados');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
 
   const validatePassword = (pwd: string): string | null => {
     if (pwd.length < 8) return 'Mínimo de 8 caracteres';
@@ -94,15 +121,79 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
           {/* Header */}
           <div className="mb-8 text-center">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-              <Shield className="h-8 w-8 text-primary" />
+              {showMigration ? <Database className="h-8 w-8 text-primary" /> : <Shield className="h-8 w-8 text-primary" />}
             </div>
             <h1 className="text-2xl font-bold text-foreground">
-              Criar Cofre Seguro
+              {showMigration ? 'Migrar Dados Locais' : 'Criar Cofre Seguro'}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Seus dados financeiros serão criptografados localmente
+              {showMigration
+                ? 'Mova seus dados do modo local para sua conta Google'
+                : 'Seus dados financeiros serão criptografados localmente'}
             </p>
           </div>
+
+          {/* Migration form */}
+          {showMigration ? (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 rounded-lg bg-primary/5 border border-primary/20 p-4 text-sm">
+                <Database className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-medium text-foreground">Dados locais detectados</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Você tem um cofre no modo sem login. Use a mesma senha para migrá-lo para esta conta Google — nada será recriptografado.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleMigrate} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    Senha do cofre local
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      value={migPassword}
+                      onChange={(e) => setMigPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="pr-10"
+                      autoComplete="current-password"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {migError && (
+                  <div className="flex items-center gap-2 rounded-lg bg-loss-muted p-3 text-sm text-loss">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    {migError}
+                  </div>
+                )}
+
+                <Button type="submit" className="w-full h-12" disabled={isMigrating}>
+                  {isMigrating ? 'Migrando...' : 'Migrar dados locais'}
+                </Button>
+              </form>
+
+              <button
+                type="button"
+                onClick={() => setShowMigration(false)}
+                className="flex w-full items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Não, criar um cofre novo
+                <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+          <>
 
           {/* Zero-Knowledge Badge */}
           <div className="mb-6 flex items-center gap-3 rounded-lg bg-success-muted p-4">
@@ -245,7 +336,21 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
             <Button type="submit" className="w-full h-12" disabled={isLoading}>
               {isLoading ? 'Criando cofre...' : 'Criar Cofre Seguro'}
             </Button>
+
+            {/* Switch to migration */}
+            {localHasData && (
+              <button
+                type="button"
+                onClick={() => setShowMigration(true)}
+                className="flex w-full items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Database className="h-3 w-3" />
+                Migrar dados do modo local
+              </button>
+            )}
           </form>
+          </>
+          )}
         </div>
 
         {/* Privacy Footer */}

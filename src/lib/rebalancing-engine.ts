@@ -108,13 +108,10 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
   const availableCash = Math.max(0, input.availableCash || 0);
   const mode = input.mode;
 
-  // Estratégia:
-  // - WITH_CONTRIBUTION: alocar o aporte APENAS para cobrir subalocações atuais (sem “antecipar”
-  //   o novo total após o aporte). Isso evita comprar ativos/carteiras já sobrealocados.
-  // - REBALANCE_ONLY: patrimônio total constante.
-  const targetPortfolioValue = totalPortfolioValue;
-
   let remainingCash = mode === "WITH_CONTRIBUTION" ? availableCash : 0;
+
+  // Carteira zerada no modo aporte: usa caixa disponivel como valor-alvo de referencia.
+  const targetPortfolioValue = totalPortfolioValue > 0 ? totalPortfolioValue : remainingCash;
 
   const canBuyAny = () =>
     assets.some((a) => {

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { motion } from "framer-motion";
-import { User, Bell, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle, Tag, Trash2 } from "lucide-react";
+import { User, Shield, Palette, Database, HelpCircle, Cloud, Download, Upload, RefreshCw, Check, AlertTriangle, Tag, Trash2, Sun, Moon, Monitor, Eye, EyeOff, Fingerprint, KeyRound } from "lucide-react";
 import { DonationDialog } from "@/components/DonationDialog";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { useAuthUser } from "@/contexts/GoogleUserContext";
-import { normalizeTickerForStorage } from "@/lib/ticker";
+import { normalizeTickerForStorage, tesouroTickerToName, isCeiArtifactName } from "@/lib/ticker";
+import { getStoredTheme, applyTheme, type Theme } from "@/lib/theme";
+import {
+  isBiometricSupported,
+  hasBiometricEnrolled,
+  enrollBiometric,
+  disableBiometric,
+} from "@/lib/biometric-unlock";
 
 import {
   downloadBackupFile,
@@ -34,7 +41,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { GoogleOAuthTutorial } from "@/components/settings/GoogleOAuthTutorial";
 
-type SettingsSection = "profile" | "notifications" | "security" | "appearance" | "data" | "help";
+type SettingsSection = "profile" | "security" | "appearance" | "data" | "help";
 
 const settingsSections = [
   {
@@ -42,12 +49,6 @@ const settingsSections = [
     title: "Perfil",
     description: "Informações pessoais e conta",
     icon: User,
-  },
-  {
-    id: "notifications" as SettingsSection,
-    title: "Notificações",
-    description: "Preferências de alertas",
-    icon: Bell,
   },
   {
     id: "security" as SettingsSection,
@@ -98,8 +99,28 @@ export default function Settings() {
     getDividends,
     saveDividendsBulk,
     notifyDataChange,
+    changeVaultPassword,
   } = useSecureStorage();
   const { user } = useAuthUser();
+
+  const namespace = user?.uid || 'local';
+
+  // Appearance
+  const [currentTheme, setCurrentTheme] = useState<Theme>(getStoredTheme);
+
+  // Security — biometric
+  const [bioSupported, setBioSupported] = useState(false);
+  const [bioEnrolled, setBioEnrolled] = useState(false);
+  const [bioEnrolling, setBioEnrolling] = useState(false);
+  const [bioPasswordInput, setBioPasswordInput] = useState('');
+  const [showBioPassword, setShowBioPassword] = useState(false);
+
+  // Security — password change
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
 
   const [syncStatus, setSyncStatus] = useState(getSyncStatus());
   const [isConnected, setIsConnected] = useState(isGoogleDriveConnected());
@@ -185,6 +206,74 @@ export default function Settings() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUnlocked]);
+
+  useEffect(() => {
+    isBiometricSupported().then(setBioSupported);
+    setBioEnrolled(hasBiometricEnrolled(namespace));
+  }, [namespace]);
+
+  const handleEnrollBiometric = async () => {
+    if (!bioPasswordInput) {
+      toast({ title: 'Digite a senha do cofre para ativar a biometria', variant: 'destructive' });
+      return;
+    }
+    setBioEnrolling(true);
+    try {
+      await enrollBiometric(namespace, bioPasswordInput);
+      setBioEnrolled(true);
+      setBioPasswordInput('');
+      toast({ title: 'Biometria ativada', description: 'Use Windows Hello para desbloquear o cofre.' });
+    } catch (e) {
+      toast({
+        title: 'Falha ao ativar biometria',
+        description: e instanceof Error ? e.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    } finally {
+      setBioEnrolling(false);
+    }
+  };
+
+  const handleDisableBiometric = () => {
+    disableBiometric(namespace);
+    setBioEnrolled(false);
+    toast({ title: 'Biometria desativada' });
+  };
+
+  const handleChangePassword = async () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      toast({ title: 'Preencha todos os campos', variant: 'destructive' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: 'As senhas novas não coincidem', variant: 'destructive' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ title: 'Senha muito curta', description: 'Use no mínimo 6 caracteres.', variant: 'destructive' });
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await changeVaultPassword(oldPassword, newPassword);
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setBioEnrolled(false);
+      toast({
+        title: 'Senha alterada com sucesso',
+        description: 'A biometria foi desativada. Configure-a novamente se desejar.',
+      });
+    } catch (e) {
+      toast({
+        title: 'Erro ao alterar senha',
+        description: e instanceof Error ? e.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   const syncNow = async () => {
     try {
@@ -603,19 +692,30 @@ export default function Settings() {
     setIsBackfillingNames(true);
     try {
       const assets = await getAssets();
+
+      // Step 1: fix Tesouro Direto names locally (no API needed)
+      const tesouroFixed: typeof assets = [];
+      for (const a of assets) {
+        if (a.type !== "fixed_income") continue;
+        const currentName = (a.name || "").trim();
+        if (isCeiArtifactName(currentName) || !currentName || currentName.toUpperCase() === a.ticker.toUpperCase()) {
+          const derived = tesouroTickerToName(a.ticker);
+          if (derived && derived !== currentName) {
+            tesouroFixed.push({ ...a, name: derived, updatedAt: Date.now() });
+          }
+        }
+      }
+
+      // Step 2: fetch names for remaining non-Tesouro assets whose name == ticker or is empty
       const candidates = assets.filter((a) => {
+        if (a.type === "fixed_income") return false; // handled above
         const n = (a.name || "").trim().toUpperCase();
         const t = (a.ticker || "").trim().toUpperCase();
         return !n || n === t;
       });
 
-      if (candidates.length === 0) {
-        toast({ title: "Nada a atualizar", description: "Todos os ativos já têm nome." });
-        return;
-      }
-
-      const BATCH = 20; // alinhado ao limite por requisição da edge function get-quotes
       const nameByTicker = new Map<string, string>();
+      const BATCH = 20;
       for (let i = 0; i < candidates.length; i += BATCH) {
         const tickers = candidates.slice(i, i + BATCH).map((a) => a.ticker.toUpperCase());
         try {
@@ -633,23 +733,25 @@ export default function Settings() {
         }
       }
 
-      const updated: typeof candidates = [];
+      const apiFixed: typeof candidates = [];
       for (const a of candidates) {
         const nm = nameByTicker.get(a.ticker.toUpperCase());
-        if (nm) updated.push({ ...a, name: nm, updatedAt: Date.now() });
+        if (nm) apiFixed.push({ ...a, name: nm, updatedAt: Date.now() });
       }
 
-      if (updated.length) {
-        await saveAssetsBulk(updated);
+      const allFixed = [...tesouroFixed, ...apiFixed];
+
+      if (allFixed.length) {
+        await saveAssetsBulk(allFixed);
       } else {
         notifyDataChange();
       }
 
       toast({
-        title: updated.length ? "Nomes atualizados" : "Nenhum nome encontrado",
-        description: updated.length
-          ? `${updated.length} ativo(s) atualizado(s).`
-          : "Não encontrei nomes para os ativos pendentes (cripto/Tesouro podem não ter nome na fonte).",
+        title: allFixed.length ? "Nomes atualizados" : "Nenhum nome encontrado",
+        description: allFixed.length
+          ? `${allFixed.length} ativo(s) atualizado(s).`
+          : "Nenhum ativo precisava de ajuste.",
       });
     } catch (e) {
       console.error("[Settings] handleBackfillAssetNames failed", e);
@@ -1126,87 +1228,190 @@ export default function Settings() {
     </div>
   );
 
-  const renderNotificationsSection = () => (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-border bg-card p-6 shadow-card">
-        <h3 className="text-lg font-semibold text-foreground mb-6">
-          Preferências de Notificação
-        </h3>
 
-        <div className="space-y-4">
-          {[
-            {
-              id: "dividends" as const,
-              label: "Proventos recebidos",
-              description: "Notificar quando receber dividendos ou JCP",
-              value: settingsDraft.notifications.dividends,
-              onChange: (v: boolean) =>
-                setSettingsDraft((s) => ({
-                  ...s,
-                  notifications: { ...s.notifications, dividends: v },
-                })),
-            },
-            {
-              id: "rebalance" as const,
-              label: "Alertas de balanceamento",
-              description: "Avisar quando a carteira estiver desbalanceada",
-              value: settingsDraft.notifications.rebalance,
-              onChange: (v: boolean) =>
-                setSettingsDraft((s) => ({
-                  ...s,
-                  notifications: { ...s.notifications, rebalance: v },
-                })),
-            },
-            {
-              id: "tax" as const,
-              label: "Lembretes de DARF",
-              description: "Lembrar de pagar imposto mensal",
-              value: settingsDraft.notifications.taxReminders,
-              onChange: (v: boolean) =>
-                setSettingsDraft((s) => ({
-                  ...s,
-                  notifications: { ...s.notifications, taxReminders: v },
-                })),
-            },
-            {
-              id: "price" as const,
-              label: "Alertas de preço",
-              description: "Notificar variações significativas",
-              value: settingsDraft.notifications.priceAlerts,
-              onChange: (v: boolean) =>
-                setSettingsDraft((s) => ({
-                  ...s,
-                  notifications: { ...s.notifications, priceAlerts: v },
-                })),
-            },
-          ].map((notification) => (
-            <div
-              key={notification.id}
-              className="flex items-center justify-between rounded-lg border border-border/50 p-4"
-            >
-              <div>
-                <p className="font-medium text-foreground">{notification.label}</p>
-                <p className="text-sm text-muted-foreground">{notification.description}</p>
-              </div>
-              <Switch
-                checked={notification.value}
-                onCheckedChange={notification.onChange}
-                disabled={!isSettingsReady}
-              />
-            </div>
-          ))}
+  const renderAppearanceSection = () => {
+    const themes: { id: Theme; label: string; description: string; Icon: typeof Sun }[] = [
+      { id: 'light', label: 'Claro', description: 'Sempre usa o tema claro', Icon: Sun },
+      { id: 'dark', label: 'Escuro', description: 'Sempre usa o tema escuro', Icon: Moon },
+      { id: 'system', label: 'Sistema', description: 'Segue a preferência do SO', Icon: Monitor },
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+          <h3 className="text-lg font-semibold text-foreground mb-1">Tema</h3>
+          <p className="text-sm text-muted-foreground mb-6">Escolha a aparência do aplicativo</p>
+          <div className="grid grid-cols-3 gap-3">
+            {themes.map(({ id, label, description, Icon }) => {
+              const active = currentTheme === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    applyTheme(id);
+                    setCurrentTheme(id);
+                    setSettingsDraft((s) => ({ ...s, theme: id }));
+                  }}
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors ${
+                    active
+                      ? 'border-primary bg-primary/5 text-primary'
+                      : 'border-border hover:bg-muted/50 text-muted-foreground'
+                  }`}
+                >
+                  <Icon className="h-6 w-6" />
+                  <span className="text-sm font-medium text-foreground">{label}</span>
+                  <span className="text-xs text-muted-foreground leading-tight">{description}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
+    );
+  };
 
-      <div className="rounded-xl border border-border bg-card p-6 shadow-card opacity-60">
-        <div className="flex items-center gap-2 mb-2">
-          <h3 className="text-lg font-semibold text-foreground">Preço médio por proventos</h3>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Em breve</span>
+  const renderSecuritySection = () => (
+    <div className="space-y-6">
+      {/* Biometria */}
+      <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+            <Fingerprint className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Windows Hello / Biometria</h3>
+            <p className="text-sm text-muted-foreground">Desbloqueie o cofre com impressão digital ou reconhecimento facial</p>
+          </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Configuração para reduzir o custo médio via proventos (ex.: rendimentos de FII como retorno de capital).
-          Esta funcionalidade está em desenvolvimento e será disponibilizada em uma versão futura.
-        </p>
+
+        {!bioSupported ? (
+          <div className="rounded-lg border border-border/50 bg-muted/30 p-4 text-sm text-muted-foreground">
+            Este dispositivo ou navegador não suporta autenticação biométrica (WebAuthn PRF).
+          </div>
+        ) : bioEnrolled ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-lg border border-success/20 bg-success/5 p-4">
+              <Check className="h-4 w-4 text-success shrink-0" />
+              <span className="text-sm font-medium text-success">Biometria ativada neste dispositivo</span>
+            </div>
+            <Button variant="outline" className="gap-2 text-destructive hover:text-destructive" onClick={handleDisableBiometric}>
+              <Fingerprint className="h-4 w-4" />
+              Desativar biometria
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Para ativar, confirme a senha do cofre. A biometria fica armazenada apenas neste dispositivo.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="bio-password">Senha do cofre</Label>
+              <div className="relative">
+                <Input
+                  id="bio-password"
+                  type={showBioPassword ? 'text' : 'password'}
+                  placeholder="Digite sua senha atual"
+                  value={bioPasswordInput}
+                  onChange={(e) => setBioPasswordInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleEnrollBiometric()}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBioPassword(!showBioPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showBioPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <Button className="gap-2" onClick={handleEnrollBiometric} disabled={bioEnrolling || !bioPasswordInput}>
+              {bioEnrolling ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />}
+              Ativar Windows Hello
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Trocar senha */}
+      <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+            <KeyRound className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Alterar Senha do Cofre</h3>
+            <p className="text-sm text-muted-foreground">Todos os dados serão re-criptografados com a nova senha</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="old-password">Senha atual</Label>
+            <div className="relative">
+              <Input
+                id="old-password"
+                type={showPasswords ? 'text' : 'password'}
+                placeholder="Sua senha atual"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswords(!showPasswords)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="new-password">Nova senha</Label>
+            <Input
+              id="new-password"
+              type={showPasswords ? 'text' : 'password'}
+              placeholder="Mínimo 6 caracteres"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirm-password">Confirmar nova senha</Label>
+            <Input
+              id="confirm-password"
+              type={showPasswords ? 'text' : 'password'}
+              placeholder="Repita a nova senha"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleChangePassword()}
+            />
+          </div>
+
+          {newPassword && confirmPassword && newPassword !== confirmPassword && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              As senhas não coincidem
+            </p>
+          )}
+
+          <div className="rounded-lg border border-warning/20 bg-warning/5 p-3 text-xs text-warning/80">
+            <AlertTriangle className="inline h-3 w-3 mr-1" />
+            A operação re-criptografa todos os seus dados. Certifique-se de lembrar a nova senha — ela não pode ser recuperada.
+          </div>
+
+          <Button
+            className="gap-2 w-full sm:w-auto"
+            onClick={handleChangePassword}
+            disabled={changingPassword || !oldPassword || !newPassword || !confirmPassword}
+          >
+            {changingPassword ? <RefreshCw className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+            {changingPassword ? 'Re-criptografando…' : 'Alterar senha'}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -1217,8 +1422,10 @@ export default function Settings() {
         return renderDataSection();
       case "profile":
         return renderProfileSection();
-      case "notifications":
-        return renderNotificationsSection();
+      case "security":
+        return renderSecuritySection();
+      case "appearance":
+        return renderAppearanceSection();
       case "help":
         return (
           <div className="rounded-xl border border-border bg-card p-6 shadow-card space-y-4">
@@ -1312,7 +1519,7 @@ export default function Settings() {
             {renderSectionContent()}
 
             {/* Save Button */}
-            {(activeSection === "profile" || activeSection === "notifications") && (
+            {(activeSection === "profile" || activeSection === "appearance") && (
               <div className="flex justify-end gap-2">
                 <Button
                   variant="outline"

@@ -1,5 +1,6 @@
 import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
+import { getStoredTheme, applyTheme, resolveTheme } from "@/lib/theme";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -21,7 +22,7 @@ import { isGoogleDriveConnected } from "@/lib/google-drive";
 import { getSyncStatus } from "@/lib/backup";
 
 export function Header() {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(() => resolveTheme(getStoredTheme()) === 'dark');
   const [syncConnected, setSyncConnected] = useState(false);
   const [needsReauth, setNeedsReauth] = useState(false);
   const { lockVault } = useSecureStorage();
@@ -53,8 +54,9 @@ export function Header() {
   }, []);
 
   const toggleTheme = () => {
+    const next = isDark ? 'light' : 'dark';
+    applyTheme(next);
     setIsDark(!isDark);
-    document.documentElement.classList.toggle("dark");
   };
 
   const syncStatus = getSyncStatus();

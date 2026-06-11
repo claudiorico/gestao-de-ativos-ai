@@ -25,7 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { usePortfolios } from "@/hooks/usePortfolios";
 import { useAssets } from "@/hooks/useAssets";
-import { normalizeTickerForStorage } from "@/lib/ticker";
+import { normalizeTickerForStorage, tesouroTickerToName, isCeiArtifactName } from "@/lib/ticker";
 import { buildImportDedupKey } from "@/lib/import-dedup";
 import type { Transaction, Dividend, Asset, CashMovement } from "@/types/financial";
 
@@ -448,10 +448,16 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       // C = compra; V/C.COTA (come-cotas) = saída de cotas.
       const type: "buy" | "sell" = ev === "C" ? "buy" : "sell";
 
+      const obsStr = String(obs || "").trim();
+      // Se obs é um artefato CEI sem valor descritivo, tenta derivar o nome do ticker
+      const derivedName = (isCeiArtifactName(obsStr) || !obsStr) && isFixedIncome
+        ? (tesouroTickerToName(ticker) ?? (obsStr || ativoStr))
+        : (obsStr || ativoStr);
+
       parsed.push({
         date: String(dateStr),
         ativo: ativoStr,
-        name: String(obs || "").trim() || ativoStr,
+        name: derivedName,
         ticker,
         assetType,
         evento: ev,
@@ -758,11 +764,14 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       // --- Tesouro Direto: compra/venda/rendimento detectados pelo nome do produto ---
       const tdTicker = extractTesouroTicker(row.productName);
       if (tdTicker) {
+        const tdName = isCeiArtifactName(row.productName)
+          ? (tesouroTickerToName(tdTicker) ?? row.productName)
+          : row.productName;
         const asset = resolveOrStageAsset(
           localAssetByTicker,
           newAssets,
           tdTicker,
-          row.productName,
+          tdName,
           "fixed_income"
         );
         if (!asset) continue;

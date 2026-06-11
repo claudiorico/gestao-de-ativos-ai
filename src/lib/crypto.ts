@@ -23,6 +23,20 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /**
+ * Converte uma string base64 para Uint8Array sem alocar strings intermediárias.
+ * A abordagem `.split('').map(charCodeAt)` cria um array com N objetos string
+ * (um por byte), causando Out-of-Memory em payloads grandes.
+ */
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
  * Derives an encryption key from user password using PBKDF2
  */
 export async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
@@ -74,9 +88,7 @@ export async function encrypt(data: string, key: CryptoKey): Promise<string> {
  * Decrypts data using AES-256-GCM
  */
 export async function decrypt(encryptedString: string, key: CryptoKey): Promise<string> {
-  const combined = new Uint8Array(
-    atob(encryptedString).split('').map((c) => c.charCodeAt(0))
-  );
+  const combined = base64ToBytes(encryptedString);
 
   const iv = combined.slice(0, IV_LENGTH);
   const data = combined.slice(IV_LENGTH);
@@ -108,7 +120,7 @@ export function saltToBase64(salt: Uint8Array): string {
  * Converts base64 back to Uint8Array
  */
 export function base64ToSalt(base64: string): Uint8Array {
-  return new Uint8Array(atob(base64).split('').map((c) => c.charCodeAt(0)));
+  return base64ToBytes(base64);
 }
 
 /**

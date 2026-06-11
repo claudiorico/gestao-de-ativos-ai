@@ -22,8 +22,12 @@ import {
   clearStore,
   wipeDatabase,
   setUserNamespace,
+  hasVaultInNamespace,
+  getRawItemFromNamespace,
+  copyAllRawFromNamespace,
 } from '@/lib/indexeddb';
 import { useAuthUser } from '@/contexts/GoogleUserContext';
+import { disableBiometric } from '@/lib/biometric-unlock';
 import type {
   Portfolio,
   Asset,
@@ -91,6 +95,11 @@ interface SecureStorageContextType extends SecureStorageState {
   exportEncryptedBackup: () => Promise<string>;
   importEncryptedBackup: (backup: string) => Promise<void>;
   wipeAllData: () => Promise<void>;
+  changeVaultPassword: (oldPassword: string, newPassword: string) => Promise<void>;
+
+  // Local → Google migration
+  localHasData: boolean;
+  migrateFromLocal: (password: string) => Promise<void>;
 
   // Trigger sync after data changes
   notifyDataChange: () => void;
@@ -100,6 +109,21 @@ const SecureStorageContext = createContext<SecureStorageContextType | null>(null
 
 const METADATA_KEY = 'encryption_metadata';
 const MASTER_DATA_KEY = 'master';
+const KEY_VERIFIER_KEY = 'key_verifier';
+const KEY_VERIFIER_VALUE = 'investpro-vault-key-v1';
+const RECORD_DATA_PREFIX = 'record:';
+
+type EncryptedDataStore = 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements';
+
+const ENCRYPTED_DATA_STORES: EncryptedDataStore[] = [
+  'portfolios',
+  'assets',
+  'transactions',
+  'dividends',
+  'cash_movements',
+];
+
+const makeRecordKey = (id: string) => `${RECORD_DATA_PREFIX}${id}`;
 
 export function SecureStorageProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<SecureStorageState>({
@@ -111,6 +135,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
   const [decryptIssuesByStore, setDecryptIssuesByStore] = useState<Record<string, number>>({});
+  const [localHasData, setLocalHasData] = useState(false);
 
   const clearDecryptIssues = useCallback(() => setDecryptIssuesByStore({}), []);
   
@@ -144,6 +169,13 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
         await openDatabase();
         const metadata = await getItem('metadata', METADATA_KEY);
+
+        // Offer migration when a Google account has no vault but 'local' does.
+        let hasLocal = false;
+        if (!metadata && namespace !== 'local') {
+          hasLocal = await hasVaultInNamespace('local');
+        }
+        setLocalHasData(hasLocal);
 
         setState((prev) => ({
           ...prev,
@@ -184,16 +216,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       
       // Store metadata (salt is safe to store, password is not)
       await setItem('metadata', METADATA_KEY, JSON.stringify(metadata));
-      
-      // Initialize empty data stores with encrypted empty arrays
-      const emptyData = await encrypt('[]', key);
-      await Promise.all([
-        setItem('portfolios', MASTER_DATA_KEY, emptyData),
-        setItem('assets', MASTER_DATA_KEY, emptyData),
-        setItem('transactions', MASTER_DATA_KEY, emptyData),
-        setItem('dividends', MASTER_DATA_KEY, emptyData),
-        setItem('cash_movements', MASTER_DATA_KEY, emptyData),
-      ]);
+      await setItem('metadata', KEY_VERIFIER_KEY, await encrypt(KEY_VERIFIER_VALUE, key));
       
       setEncryptionKey(key);
       setState({
@@ -225,11 +248,14 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       const salt = base64ToSalt(metadata.salt);
       const key = await deriveKey(password, salt);
       
-      // Test decryption with stored data
-      const testData = await getItem('portfolios', MASTER_DATA_KEY);
-      if (testData) {
+      // Test decryption with a verifier. Older vaults may not have it yet, so
+      // fall back to the legacy master block and create the verifier after a
+      // successful unlock.
+      const verifier = await getItem('metadata', KEY_VERIFIER_KEY);
+      if (verifier) {
         try {
-          await decrypt(testData, key); // Will throw if wrong password
+          const verifierValue = await decrypt(verifier, key);
+          if (verifierValue !== KEY_VERIFIER_VALUE) throw new Error('Invalid key verifier');
         } catch (decryptError) {
           console.error('Decryption failed:', decryptError);
           setState((prev) => ({
@@ -239,6 +265,31 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
           }));
           return false;
         }
+      } else {
+        let testData = await getItem('portfolios', MASTER_DATA_KEY);
+        if (!testData) {
+          for (const store of ENCRYPTED_DATA_STORES) {
+            const rows = await getAllItems(store);
+            testData = rows.find((row) => row.id.startsWith(RECORD_DATA_PREFIX))?.data ?? null;
+            if (testData) break;
+          }
+        }
+
+        if (testData) {
+          try {
+            await decrypt(testData, key); // Will throw if wrong password
+          } catch (decryptError) {
+            console.error('Decryption failed:', decryptError);
+            setState((prev) => ({
+              ...prev,
+              isLoading: false,
+              error: 'Senha incorreta',
+            }));
+            return false;
+          }
+        }
+
+        await setItem('metadata', KEY_VERIFIER_KEY, await encrypt(KEY_VERIFIER_VALUE, key));
       }
       
       setEncryptionKey(key);
@@ -265,28 +316,73 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     setState((prev) => ({ ...prev, isUnlocked: false }));
   }, []);
 
-  // Generic encrypted CRUD operations
-  const getEncryptedData = useCallback(
-    async <T,>(
-      store: 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements'
-    ): Promise<T[]> => {
+  const decryptJson = useCallback(
+    async <T,>(store: EncryptedDataStore | 'settings', encrypted: string): Promise<T> => {
       if (!encryptionKey) throw new Error('Vault is locked');
-
-      const encrypted = await getItem(store, MASTER_DATA_KEY);
-      if (!encrypted) return [];
 
       try {
         const decrypted = await decrypt(encrypted, encryptionKey);
         return JSON.parse(decrypted);
       } catch (err) {
-        // If a single store becomes corrupted (or was written with a previous key/version),
-        // we prefer to keep the app usable by returning an empty array for that store.
+        // Register the failure so the UI can surface a diagnostic warning.
         console.error(`[SecureStorage] Failed to decrypt store "${store}"`, err);
         setDecryptIssuesByStore((prev) => (prev[store] ? prev : { ...prev, [store]: Date.now() }));
-        return [];
+
+        // CRITICAL: Re-throw so write operations abort instead of overwriting
+        // encrypted data with a partial/empty payload.
+        throw new Error(
+          `[SecureStorage] Store "${store}" could not be decrypted - aborting write to prevent data loss. ` +
+          `This may indicate data corruption or a key mismatch. Original error: ${String(err)}`
+        );
       }
     },
     [encryptionKey]
+  );
+
+  const migrateLegacyMasterStore = useCallback(
+    async <T extends { id: string }>(store: EncryptedDataStore, items: T[]): Promise<void> => {
+      if (!encryptionKey) throw new Error('Vault is locked');
+
+      await Promise.all(
+        items.map(async (item) =>
+          setItem(store, makeRecordKey(item.id), await encrypt(JSON.stringify(item), encryptionKey))
+        )
+      );
+      await deleteItem(store, MASTER_DATA_KEY);
+    },
+    [encryptionKey]
+  );
+
+  // Generic encrypted CRUD operations. Data rows are encrypted item-by-item as
+  // record:<id>. Legacy vaults with a single encrypted "master" array are read
+  // first and migrated only after all record writes succeed.
+  const getEncryptedData = useCallback(
+    async <T extends { id: string }>(store: EncryptedDataStore): Promise<T[]> => {
+      if (!encryptionKey) throw new Error('Vault is locked');
+
+      const rows = await getAllItems(store);
+      const legacyMaster = rows.find((row) => row.id === MASTER_DATA_KEY)?.data;
+
+      if (legacyMaster) {
+        const legacyItems = await decryptJson<T[]>(store, legacyMaster);
+        await migrateLegacyMasterStore(store, legacyItems);
+        return legacyItems;
+      }
+
+      const recordRows = rows.filter((row) => row.id.startsWith(RECORD_DATA_PREFIX));
+      return Promise.all(recordRows.map((row) => decryptJson<T>(store, row.data)));
+    },
+    [decryptJson, encryptionKey, migrateLegacyMasterStore]
+  );
+
+  const ensureRecordStore = useCallback(
+    async (store: EncryptedDataStore): Promise<void> => {
+      const legacyMaster = await getItem(store, MASTER_DATA_KEY);
+      if (legacyMaster) {
+        await getEncryptedData(store);
+      }
+    },
+    [getEncryptedData]
   );
 
   // Notify for auto-sync (consumers can listen to this)
@@ -299,84 +395,68 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
   const saveEncryptedData = useCallback(
     async <T extends { id: string }>(
-      store: 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements',
+      store: EncryptedDataStore,
       item: T
     ): Promise<void> => {
       if (!encryptionKey) throw new Error('Vault is locked');
 
-      const items = await getEncryptedData<T>(store);
-      const index = items.findIndex((i) => i.id === item.id);
-
-      if (index >= 0) {
-        items[index] = item;
-      } else {
-        items.push(item);
-      }
-
-      const encrypted = await encrypt(JSON.stringify(items), encryptionKey);
-      await setItem(store, MASTER_DATA_KEY, encrypted);
+      await ensureRecordStore(store);
+      const encrypted = await encrypt(JSON.stringify(item), encryptionKey);
+      await setItem(store, makeRecordKey(item.id), encrypted);
       notifyDataChange();
     },
-    [encryptionKey, getEncryptedData, notifyDataChange]
+    [encryptionKey, ensureRecordStore, notifyDataChange]
   );
 
-  // Salva muitos itens de uma vez: lê/decripta uma vez, mescla por id, encripta e grava
-  // uma vez, notificando uma única vez. Evita o custo O(N²) e a rajada de eventos da
-  // importação em massa (centenas/milhares de itens).
+  // Salva muitos itens como registros criptografados independentes, notificando
+  // uma única vez. Evita recriptografar a tabela inteira em importações grandes.
   const saveManyEncryptedData = useCallback(
     async <T extends { id: string }>(
-      store: 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements',
+      store: EncryptedDataStore,
       newItems: T[]
     ): Promise<void> => {
       if (!encryptionKey) throw new Error('Vault is locked');
       if (!newItems.length) return;
 
-      const items = await getEncryptedData<T>(store);
-      const byId = new Map(items.map((i) => [i.id, i] as const));
-      for (const it of newItems) byId.set(it.id, it);
-
-      const encrypted = await encrypt(JSON.stringify(Array.from(byId.values())), encryptionKey);
-      await setItem(store, MASTER_DATA_KEY, encrypted);
+      await ensureRecordStore(store);
+      await Promise.all(
+        newItems.map(async (item) =>
+          setItem(store, makeRecordKey(item.id), await encrypt(JSON.stringify(item), encryptionKey))
+        )
+      );
       notifyDataChange();
     },
-    [encryptionKey, getEncryptedData, notifyDataChange]
+    [encryptionKey, ensureRecordStore, notifyDataChange]
   );
 
-  // Remove vários itens de uma vez (lê/encripta/grava uma vez, notifica uma vez).
+  // Remove vários registros de uma vez e notifica uma única vez.
   const deleteManyEncryptedData = useCallback(
     async <T extends { id: string }>(
-      store: 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements',
+      store: EncryptedDataStore,
       ids: string[]
     ): Promise<void> => {
       if (!encryptionKey) throw new Error('Vault is locked');
       if (!ids.length) return;
 
-      const items = await getEncryptedData<T>(store);
-      const idSet = new Set(ids);
-      const filtered = items.filter((i) => !idSet.has(i.id));
-
-      const encrypted = await encrypt(JSON.stringify(filtered), encryptionKey);
-      await setItem(store, MASTER_DATA_KEY, encrypted);
+      await ensureRecordStore(store);
+      await Promise.all(ids.map((id) => deleteItem(store, makeRecordKey(id))));
       notifyDataChange();
     },
-    [encryptionKey, getEncryptedData, notifyDataChange]
+    [encryptionKey, ensureRecordStore, notifyDataChange]
   );
 
   const deleteEncryptedData = useCallback(
     async <T extends { id: string }>(
-      store: 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements',
+      store: EncryptedDataStore,
       id: string
     ): Promise<void> => {
       if (!encryptionKey) throw new Error('Vault is locked');
 
-      const items = await getEncryptedData<T>(store);
-      const filtered = items.filter((i) => i.id !== id);
-
-      const encrypted = await encrypt(JSON.stringify(filtered), encryptionKey);
-      await setItem(store, MASTER_DATA_KEY, encrypted);
+      await ensureRecordStore(store);
+      await deleteItem(store, makeRecordKey(id));
       notifyDataChange();
     },
-    [encryptionKey, getEncryptedData, notifyDataChange]
+    [encryptionKey, ensureRecordStore, notifyDataChange]
   );
 
   // Portfolio operations
@@ -428,9 +508,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     const encrypted = await getItem('settings', MASTER_DATA_KEY);
     if (!encrypted) return null;
 
-    const decrypted = await decrypt(encrypted, encryptionKey);
-    return JSON.parse(decrypted);
-  }, [encryptionKey]);
+    return decryptJson<UserSettings>('settings', encrypted);
+  }, [decryptJson, encryptionKey]);
 
   const saveSettings = useCallback(
     async (settings: UserSettings): Promise<void> => {
@@ -448,22 +527,36 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     if (!encryptionKey) throw new Error('Vault is locked');
     
       const data = {
-        portfolios: await getItem('portfolios', MASTER_DATA_KEY),
-        assets: await getItem('assets', MASTER_DATA_KEY),
-        transactions: await getItem('transactions', MASTER_DATA_KEY),
-        dividends: await getItem('dividends', MASTER_DATA_KEY),
-        cash_movements: await getItem('cash_movements', MASTER_DATA_KEY),
+        portfolios: await encrypt(JSON.stringify(await getEncryptedData<Portfolio>('portfolios')), encryptionKey),
+        assets: await encrypt(JSON.stringify(await getEncryptedData<Asset>('assets')), encryptionKey),
+        transactions: await encrypt(JSON.stringify(await getEncryptedData<Transaction>('transactions')), encryptionKey),
+        dividends: await encrypt(JSON.stringify(await getEncryptedData<Dividend>('dividends')), encryptionKey),
+        cash_movements: await encrypt(JSON.stringify(await getEncryptedData<CashMovement>('cash_movements')), encryptionKey),
         settings: await getItem('settings', MASTER_DATA_KEY),
         metadata: await getItem('metadata', METADATA_KEY),
         exportedAt: Date.now(),
       };
     
     return JSON.stringify(data);
-  }, [encryptionKey]);
+  }, [encryptionKey, getEncryptedData]);
 
   const importEncryptedBackup = useCallback(
     async (backup: string): Promise<void> => {
       const data = JSON.parse(backup);
+
+      if (!data.metadata) {
+        throw new Error('Invalid encrypted backup: missing metadata');
+      }
+
+      await Promise.all([
+        clearStore('portfolios'),
+        clearStore('assets'),
+        clearStore('transactions'),
+        clearStore('dividends'),
+        clearStore('cash_movements'),
+        clearStore('settings'),
+        clearStore('metadata'),
+      ]);
 
       if (data.portfolios) await setItem('portfolios', MASTER_DATA_KEY, data.portfolios);
       if (data.assets) await setItem('assets', MASTER_DATA_KEY, data.assets);
@@ -477,6 +570,105 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     },
     [notifyDataChange]
   );
+
+  const changeVaultPassword = useCallback(
+    async (oldPassword: string, newPassword: string): Promise<void> => {
+      if (!encryptionKey) throw new Error('Vault is locked');
+
+      // 1. Verify old password against stored verifier
+      const metadataStr = await getItem('metadata', METADATA_KEY);
+      if (!metadataStr) throw new Error('Vault not initialized');
+      const metadata: EncryptionMetadata = JSON.parse(metadataStr);
+      const oldSalt = base64ToSalt(metadata.salt);
+      const testKey = await deriveKey(oldPassword, oldSalt);
+
+      const verifier = await getItem('metadata', KEY_VERIFIER_KEY);
+      if (verifier) {
+        try {
+          const v = await decrypt(verifier, testKey);
+          if (v !== KEY_VERIFIER_VALUE) throw new Error('bad verifier');
+        } catch {
+          throw new Error('Senha atual incorreta');
+        }
+      }
+
+      // 2. Read all decrypted data with current (correct) key
+      const portfolios = await getEncryptedData<Portfolio>('portfolios');
+      const assets = await getEncryptedData<Asset>('assets');
+      const transactions = await getEncryptedData<Transaction>('transactions');
+      const dividends = await getEncryptedData<Dividend>('dividends');
+      const cashMovements = await getEncryptedData<CashMovement>('cash_movements');
+      const settingsRaw = await getItem('settings', MASTER_DATA_KEY);
+      let settingsJson: string | null = null;
+      if (settingsRaw) {
+        try { settingsJson = await decrypt(settingsRaw, encryptionKey); } catch {}
+      }
+
+      // 3. Generate new salt + key
+      const newSalt = generateSalt();
+      const newKey = await deriveKey(newPassword, newSalt);
+
+      // 4. Persist new metadata + verifier
+      const newMetadata: EncryptionMetadata = { ...metadata, salt: saltToBase64(newSalt) };
+      await setItem('metadata', METADATA_KEY, JSON.stringify(newMetadata));
+      await setItem('metadata', KEY_VERIFIER_KEY, await encrypt(KEY_VERIFIER_VALUE, newKey));
+
+      // 5. Re-encrypt every record with new key
+      const reencrypt = async <T extends { id: string }>(store: EncryptedDataStore, items: T[]) => {
+        await Promise.all(
+          items.map(async (item) =>
+            setItem(store, makeRecordKey(item.id), await encrypt(JSON.stringify(item), newKey))
+          )
+        );
+      };
+      await reencrypt('portfolios', portfolios);
+      await reencrypt('assets', assets);
+      await reencrypt('transactions', transactions);
+      await reencrypt('dividends', dividends);
+      await reencrypt('cash_movements', cashMovements);
+      if (settingsJson) {
+        await setItem('settings', MASTER_DATA_KEY, await encrypt(settingsJson, newKey));
+      }
+
+      // 6. Update context key + clear biometric (ciphertext is now stale)
+      setEncryptionKey(newKey);
+      disableBiometric(getUserNamespace());
+    },
+    [encryptionKey, getEncryptedData, getUserNamespace]
+  );
+
+  const migrateFromLocal = useCallback(async (password: string): Promise<void> => {
+    // 1. Verify password against the local vault before touching anything.
+    const localMetaStr = await getRawItemFromNamespace('local', 'metadata', METADATA_KEY);
+    if (!localMetaStr) throw new Error('Nenhum cofre local encontrado');
+
+    const localMeta: EncryptionMetadata = JSON.parse(localMetaStr);
+    const localSalt = base64ToSalt(localMeta.salt);
+    const testKey = await deriveKey(password, localSalt);
+
+    const localVerifier = await getRawItemFromNamespace('local', 'metadata', KEY_VERIFIER_KEY);
+    if (localVerifier) {
+      try {
+        const v = await decrypt(localVerifier, testKey);
+        if (v !== KEY_VERIFIER_VALUE) throw new Error('bad verifier');
+      } catch {
+        throw new Error('Senha incorreta');
+      }
+    }
+
+    // 2. Copy all raw encrypted records (including metadata/salt) to current namespace.
+    await copyAllRawFromNamespace('local');
+
+    // 3. Unlock normally — metadata + data are now in the current namespace.
+    const ok = await unlockVault(password);
+    if (!ok) {
+      // Rollback: remove the partial copy so the setup screen reappears.
+      await wipeDatabase();
+      throw new Error('Falha inesperada ao desbloquear após migração');
+    }
+
+    setLocalHasData(false);
+  }, [unlockVault]);
 
   const wipeAllData = useCallback(async (): Promise<void> => {
     await wipeDatabase();
@@ -522,6 +714,9 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     exportEncryptedBackup,
     importEncryptedBackup,
     wipeAllData,
+    changeVaultPassword,
+    localHasData,
+    migrateFromLocal,
     notifyDataChange,
   };
 

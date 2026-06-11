@@ -381,6 +381,7 @@ export async function downloadFromGoogleDrive(
       assets: backup.data.assets,
       transactions: backup.data.transactions,
       dividends: backup.data.dividends,
+      cash_movements: backup.data.cash_movements,
       settings: backup.data.settings,
       metadata: backup.data.metadata,
     });

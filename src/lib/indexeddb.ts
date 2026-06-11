@@ -291,6 +291,122 @@ export async function exportAllData(): Promise<Record<string, unknown[]>> {
 }
 
 /**
+ * Check whether a given namespace has an initialised vault (encryption_metadata present)
+ * without creating the database if it does not exist.
+ */
+export async function hasVaultInNamespace(namespace: string): Promise<boolean> {
+  const ns = namespace || 'local';
+  const dbName = ns === 'default' ? DB_NAME_PREFIX : `${DB_NAME_PREFIX}_${ns}`;
+
+  // Fast-path: if the browser lists databases, skip opening an absent one.
+  if ('databases' in indexedDB) {
+    try {
+      const dbs = await (indexedDB as any).databases() as Array<{ name?: string }>;
+      if (!dbs.some((d) => d.name === dbName)) return false;
+    } catch {}
+  }
+
+  return new Promise((resolve) => {
+    const req = indexedDB.open(dbName);
+    req.onupgradeneeded = () => {
+      // DB was just created → it didn't exist → abort and report false.
+      req.transaction!.abort();
+      resolve(false);
+    };
+    req.onerror = () => resolve(false);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('metadata')) {
+        db.close();
+        resolve(false);
+        return;
+      }
+      const tx = db.transaction('metadata', 'readonly');
+      const r = tx.objectStore('metadata').get('encryption_metadata');
+      r.onsuccess = () => { db.close(); resolve(!!r.result); };
+      r.onerror   = () => { db.close(); resolve(false); };
+    };
+  });
+}
+
+/**
+ * Read a single raw encrypted string from a different namespace's database.
+ * Returns null if the namespace / store / key does not exist.
+ */
+export async function getRawItemFromNamespace(
+  namespace: string,
+  store: keyof DBStores,
+  id: string,
+): Promise<string | null> {
+  const ns = namespace || 'local';
+  const dbName = ns === 'default' ? DB_NAME_PREFIX : `${DB_NAME_PREFIX}_${ns}`;
+
+  return new Promise((resolve) => {
+    const req = indexedDB.open(dbName);
+    req.onupgradeneeded = () => { req.transaction!.abort(); resolve(null); };
+    req.onerror = () => resolve(null);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(store)) { db.close(); resolve(null); return; }
+      const tx = db.transaction(store, 'readonly');
+      const r = tx.objectStore(store).get(id);
+      r.onsuccess = () => { db.close(); resolve(r.result?.data ?? null); };
+      r.onerror   = () => { db.close(); resolve(null); };
+    };
+  });
+}
+
+/**
+ * Copy all raw (still-encrypted) records from a source namespace into the
+ * current namespace's database.  Existing records with the same key are
+ * overwritten so the operation is idempotent.
+ */
+export async function copyAllRawFromNamespace(sourceNamespace: string): Promise<void> {
+  const ns = sourceNamespace || 'local';
+  const srcDbName = ns === 'default' ? DB_NAME_PREFIX : `${DB_NAME_PREFIX}_${ns}`;
+
+  // --- Read all records from source ---
+  const sourceData = await new Promise<Record<string, Array<{ id: string; data: string; updatedAt?: number }>>>(
+    (resolve, reject) => {
+      const req = indexedDB.open(srcDbName);
+      req.onupgradeneeded = () => { req.transaction!.abort(); reject(new Error('Source DB missing')); };
+      req.onerror = () => reject(new Error('Cannot open source DB'));
+      req.onsuccess = () => {
+        const db = req.result;
+        const result: Record<string, any[]> = {};
+        let pending = STORES.length;
+
+        const done = () => { if (--pending === 0) { db.close(); resolve(result as any); } };
+
+        for (const s of STORES) {
+          result[s] = [];
+          if (!db.objectStoreNames.contains(s)) { done(); continue; }
+          const tx = db.transaction(s, 'readonly');
+          const r = tx.objectStore(s).getAll();
+          r.onsuccess = () => { result[s] = r.result ?? []; done(); };
+          r.onerror   = () => done();
+        }
+      };
+    }
+  );
+
+  // --- Write everything into the current namespace ---
+  const destDb = await openDatabase();
+  for (const s of STORES) {
+    const rows = sourceData[s];
+    if (!rows?.length) continue;
+    await new Promise<void>((resolve, reject) => {
+      const tx = destDb.transaction(s as keyof DBStores, 'readwrite');
+      const os = tx.objectStore(s);
+      for (const row of rows) os.put(row);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error);
+    });
+  }
+}
+
+/**
  * Completely wipes the database
  */
 export async function wipeDatabase(): Promise<void> {

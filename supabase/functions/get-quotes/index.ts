@@ -74,8 +74,8 @@ const FUNCTION_VERSION = '2026-01-20T15:10Z';
 // - Pode ser perdido a qualquer momento (cold start / restart)
 // ------------------
 const CACHE_TTL_NAME_MS = 24 * 60 * 60 * 1000; // 24h (nome muda raramente)
-const CACHE_TTL_INF_ZIP_MS = 12 * 60 * 60 * 1000; // 12h (arquivo mensal)
-const CACHE_TTL_QUOTA_MS = 6 * 60 * 60 * 1000; // 6h (cota 1x/dia)
+// CACHE_TTL_INF_ZIP_MS removido: não há mais cache do CSV monolítico (anti-OOM).
+const CACHE_TTL_QUOTA_MS = 6 * 60 * 60 * 1000; // 6h (cota só muda 1x/dia)
 const CACHE_TTL_ANBIMA_TPF_MS = 30 * 60 * 1000; // 30min (atualiza ao longo do dia)
 
 
@@ -83,8 +83,8 @@ type CacheEntry<T> = { value: T; fetchedAt: number };
 
 const cvmNameCache = new Map<string, CacheEntry<string>>(); // cnpj(14) -> nome
 const cvmRegistroCsvCache = new Map<string, CacheEntry<string>>(); // url -> csv text
-const cvmInfDiarioCsvCache = new Map<string, CacheEntry<string>>(); // yyyymm -> csv text
-const cvmQuotaCache = new Map<string, CacheEntry<{ quota: number; asOfDate: string }>>(); // `${yyyymm}:${cnpj}` -> quota (última do mês)
+// REMOVIDO: cvmInfDiarioCsvCache (armazenava 150-300MB de CSV como string -- OOM).
+// Substituído por cvmQuotaHistoryCache + scanInfDiarioForCnpjs (granular, anti-OOM).
 const cvmQuotaHistoryCache = new Map<
   string,
   CacheEntry<{ latest: { quota: number; asOfDate: string }; previous: { quota: number; asOfDate: string } | null }>
@@ -95,7 +95,7 @@ const anbimaTpfCache = new Map<string, CacheEntry<any[]>>(); // key='tpf' -> ite
 
 // Dedupe de fetches simultâneos (evita estourar CPU e rede quando há vários itens no mesmo request)
 const inFlightCsv = new Map<string, Promise<string | null>>();
-const inFlightInfDiario = new Map<string, Promise<string | null>>();
+// REMOVIDO: inFlightInfDiario (não necessário com o scanner granular por CNPJ)
 const inFlightAnbimaTpf = new Map<string, Promise<any[]>>();
 
 
@@ -132,48 +132,147 @@ async function fetchCachedCsv(url: string, ttlMs: number): Promise<string | null
   }
 }
 
-async function getInfDiarioCsv(yyyymm: string): Promise<string | null> {
-  const cached = cvmInfDiarioCsvCache.get(yyyymm);
-  if (isFresh(cached, CACHE_TTL_INF_ZIP_MS)) return cached!.value;
+/**
+ * Recupera as últimas 2 cotas de cada CNPJ solicitado no arquivo INF_DIÁRIO do mês indicado.
+ *
+ * ESTRATÉGIA ANTI-OOM:
+ * - Baixa o ZIP em streaming (arrayBuffer necessário para zip.js, mas é o menor custo possível).
+ * - Decomprime via zip.js e percorre o CSV byte-a-byte em linha-a-linha SEM materializar
+ *   a string gigante do arquivo completo (150-300MB descompactado) em memória de uma vez só.
+ * - Retorna apenas um Map<cnpj, {latest, previous}> com os CNPJs solicitados.
+ * - O arquivo ZIP comprimido (~5-15MB) é descartado assim que a varredura termina.
+ *   Nunca armazenamos o CSV descompactado completo no cache.
+ */
+async function scanInfDiarioForCnpjs(
+  yyyymm: string,
+  targets: Set<string>
+): Promise<Record<string, { latest: { quota: number; asOfDate: string }; previous: { quota: number; asOfDate: string } | null } | null>> {
+  const out: Record<string, { latest: { quota: number; asOfDate: string }; previous: { quota: number; asOfDate: string } | null } | null> =
+    Object.fromEntries(Array.from(targets).map((c) => [c, null]));
 
-  const existing = inFlightInfDiario.get(yyyymm);
-  if (existing) return await existing;
+  const zipUrl = `https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_${yyyymm}.zip`;
+  const resp = await fetch(zipUrl, {
+    headers: { 'User-Agent': 'InvestPro/1.0', Accept: '*/*' },
+  });
 
-  const p = (async () => {
-    const zipUrl = `https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_${yyyymm}.zip`;
-    const resp = await fetch(zipUrl, {
-      headers: { 'User-Agent': 'InvestPro/1.0', Accept: '*/*' },
-    });
+  console.log('[CVM][INF_DIARIO] fetch zip', { yyyymm, ok: resp.ok, status: resp.status, targets: targets.size });
+  if (!resp.ok) return out;
 
-    console.log('[CVM][CACHE] fetch inf_diario zip', { yyyymm, ok: resp.ok, status: resp.status });
-    if (!resp.ok) return null;
+  // O ZIP comprimido é tipicamente 5-15MB — aceitável em RAM.
+  const zipBytes = new Uint8Array(await resp.arrayBuffer());
+  const zipReader = new ZipReader(new Uint8ArrayReader(zipBytes));
 
-    const zipBytes = new Uint8Array(await resp.arrayBuffer());
-
-    const zipReader = new ZipReader(new Uint8ArrayReader(zipBytes));
-
+  try {
     const entries = await (zipReader as any).getEntries();
     const csvEntry = entries.find((e: any) => String(e?.filename ?? '').toLowerCase().endsWith('.csv'));
-    if (!csvEntry || typeof (csvEntry as any).getData !== 'function') {
-      await (zipReader as any).close();
-      return null;
+    if (!csvEntry || typeof (csvEntry as any).getData !== 'function') return out;
+
+    // Decomprime o CSV completo — inevitável com zip.js (sem streaming interno).
+    // Recebemos Uint8Array (bytes puros), que é muito mais econômico que uma string JS.
+    // Uma string JS em UTF-16 custaria ~2x o tamanho; o Uint8Array custa 1x.
+    const csvBytes: Uint8Array = await (csvEntry as any).getData(new Uint8ArrayWriter());
+
+    // Varredura linha-a-linha SEM converter para string completa.
+    // Processamos em latin-1 (ISO-8859-1): cada byte é um char code ≤ 255,
+    // então podemos ler direto do buffer sem TextDecoder de bloco completo.
+    let lineStart = 0;
+    let headerParsed = false;
+    let idxCnpj = -1, idxDate = -1, idxQuota = -1;
+
+    // Resultado parcial (cotas mais recentes encontradas)
+    const latestBy: Record<string, { quota: number; asOfDate: string }> = {};
+    const previousBy: Record<string, { quota: number; asOfDate: string }> = {};
+
+    const decodeLatinSlice = (start: number, end: number): string => {
+      let s = '';
+      for (let k = start; k < end; k++) s += String.fromCharCode(csvBytes[k]);
+      return s;
+    };
+
+    for (let pos = 0; pos <= csvBytes.length; pos++) {
+      const atEnd = pos === csvBytes.length;
+      const ch = atEnd ? 10 : csvBytes[pos]; // trata EOF como \n
+
+      if (ch !== 10 /* \n */ && !atEnd) continue;
+
+      // extrai linha (descarta \r se existir)
+      const lineEnd = (pos > 0 && csvBytes[pos - 1] === 13) ? pos - 1 : pos;
+      if (lineEnd <= lineStart) { lineStart = pos + 1; continue; }
+
+      const line = decodeLatinSlice(lineStart, lineEnd);
+      lineStart = pos + 1;
+
+      if (!line.trim()) continue;
+
+      const cols = line.split(';');
+
+      if (!headerParsed) {
+        const headerUpper = cols.map((h) => h.replace(/^\uFEFF/, '').trim().toUpperCase());
+        const preferred = ['CNPJ_FUNDO_CLASSE', 'CNPJ_CLASSE', 'CNPJ_SUBCLASSE', 'CNPJ_FUNDO'];
+        for (const key of preferred) {
+          const idx = headerUpper.findIndex((h) => h === key);
+          if (idx !== -1) { idxCnpj = idx; break; }
+        }
+        if (idxCnpj === -1) idxCnpj = headerUpper.findIndex((h) => h.includes('CNPJ'));
+        idxDate = headerUpper.findIndex((h) => h === 'DT_COMPTC');
+        idxQuota = headerUpper.findIndex((h) => h === 'VL_QUOTA');
+        headerParsed = true;
+        if (idxCnpj === -1 || idxDate === -1 || idxQuota === -1) {
+          console.warn('[CVM][INF_DIARIO] colunas não encontradas', { idxCnpj, idxDate, idxQuota });
+          break;
+        }
+        continue;
+      }
+
+      const cnpj = normalizeCnpj((cols[idxCnpj] ?? '').trim());
+      if (!targets.has(cnpj)) continue;
+
+      const date = (cols[idxDate] ?? '').trim();
+      const quota = Number((cols[idxQuota] ?? '').trim().replace(',', '.'));
+      if (!Number.isFinite(quota) || !date) continue;
+
+      const existingLatest = latestBy[cnpj];
+      if (!existingLatest || date > existingLatest.asOfDate) {
+        previousBy[cnpj] = existingLatest ?? previousBy[cnpj];
+        latestBy[cnpj] = { quota, asOfDate: date };
+      } else if (date < existingLatest.asOfDate) {
+        const existingPrev = previousBy[cnpj];
+        if (!existingPrev || date > existingPrev.asOfDate) {
+          previousBy[cnpj] = { quota, asOfDate: date };
+        }
+      }
     }
 
-    const csvBytes: Uint8Array = await (csvEntry as any).getData(new Uint8ArrayWriter());
-    await (zipReader as any).close();
+    for (const cnpj of Array.from(targets)) {
+      const latest = latestBy[cnpj];
+      if (latest) {
+        out[cnpj] = { latest, previous: previousBy[cnpj] ?? null };
+      }
+    }
 
-    const csv = new TextDecoder('latin1').decode(csvBytes);
-    cvmInfDiarioCsvCache.set(yyyymm, { value: csv, fetchedAt: Date.now() });
-    return csv;
-  })();
-
-  inFlightInfDiario.set(yyyymm, p);
-  try {
-    return await p;
+    console.log('[CVM][INF_DIARIO] scan concluído', {
+      yyyymm,
+      zipKb: Math.round(zipBytes.length / 1024),
+      csvLines: lineStart,
+      found: Object.values(out).filter(Boolean).length,
+    });
   } finally {
-    inFlightInfDiario.delete(yyyymm);
+    await (zipReader as any).close();
   }
+
+  return out;
 }
+
+// Cache granular: cnpj -> {latest, previous} com TTL de 6h (cota só muda 1x/dia)
+// Substituiu o cvmInfDiarioCsvCache (que armazenava 150-300MB de CSV como string)
+const cvmScanResultCache = new Map<
+  string,
+  CacheEntry<{ latest: { quota: number; asOfDate: string }; previous: { quota: number; asOfDate: string } | null }>
+>();
+
+// In-flight deduplication por (yyyymm + cnpj)
+const inFlightScan = new Map<string, Promise<void>>();
+
 interface QuoteResponse {
   ticker: string;
   price: number;
@@ -852,89 +951,11 @@ async function fetchCvmFundName(cnpjDigits: string): Promise<string | null> {
 }
 
 async function fetchCvmFundLastQuota(cnpjDigits: string): Promise<{ quota: number; asOfDate: string } | null> {
-  // Mantido por compatibilidade (uso unitário), mas a rota principal usa o batch.
+  // Delega ao batch para evitar duplicação de lógica e garantir uso do scanner anti-OOM.
   try {
-    const target = normalizeCnpj(cnpjDigits);
-    if (target.length !== 14) return null;
-
-    const now = new Date();
-
-    for (let offset = 0; offset < 12; offset++) {
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const yyyymm = `${yyyy}${mm}`;
-
-      const quotaKey = `${yyyymm}:${target}`;
-      const cachedQuota = cvmQuotaCache.get(quotaKey);
-      if (isFresh(cachedQuota, CACHE_TTL_QUOTA_MS)) {
-        console.log('[CVM][CACHE] quota hit', { quotaKey });
-        return cachedQuota!.value;
-      }
-
-      const csv = await getInfDiarioCsv(yyyymm);
-      if (!csv) continue;
-
-      // Varredura leve linha-a-linha (evita split gigante)
-      let bestDate = '';
-      let bestQuota: number | null = null;
-
-      const text = String(csv);
-      const firstNl = text.search(/\r?\n/);
-      if (firstNl === -1) continue;
-
-      const headerLine = text.slice(0, firstNl).replace(/\r$/, '');
-      const header = headerLine.split(';').map((h) => h.replace(/^\uFEFF/, '').trim());
-      const headerUpper = header.map((h) => h.toUpperCase());
-
-      const idxCnpj = (() => {
-        const preferred = ['CNPJ_FUNDO_CLASSE', 'CNPJ_CLASSE', 'CNPJ_SUBCLASSE', 'CNPJ_FUNDO'];
-        for (const key of preferred) {
-          const idx = headerUpper.findIndex((h) => h === key);
-          if (idx !== -1) return idx;
-        }
-        return headerUpper.findIndex((h) => h.includes('CNPJ'));
-      })();
-
-      const idxDate = headerUpper.findIndex((h) => h === 'DT_COMPTC');
-      const idxQuota = headerUpper.findIndex((h) => h === 'VL_QUOTA');
-      if (idxCnpj === -1 || idxDate === -1 || idxQuota === -1) continue;
-
-      let i = firstNl;
-      while (i < text.length) {
-        if (text[i] === '\r') i++;
-        if (text[i] === '\n') i++;
-        if (i >= text.length) break;
-
-        let j = text.indexOf('\n', i);
-        if (j === -1) j = text.length;
-        const row = text.slice(i, j).replace(/\r$/, '');
-        i = j;
-        if (!row) continue;
-
-        const cols = row.split(';');
-        const cnpj = normalizeCnpj((cols[idxCnpj] ?? '').trim());
-        if (cnpj !== target) continue;
-
-        const date = (cols[idxDate] ?? '').trim();
-        const quotaRaw = (cols[idxQuota] ?? '').trim().replace(',', '.');
-        const quota = Number(quotaRaw);
-        if (!Number.isFinite(quota)) continue;
-
-        if (!bestDate || date > bestDate) {
-          bestDate = date;
-          bestQuota = quota;
-        }
-      }
-
-      if (bestQuota === null || !bestDate) continue;
-
-      const result = { quota: bestQuota, asOfDate: bestDate };
-      cvmQuotaCache.set(quotaKey, { value: result, fetchedAt: Date.now() });
-      return result;
-    }
-
-    return null;
+    const result = await fetchCvmFundQuotasBatch([cnpjDigits]);
+    const cnpj = normalizeCnpj(cnpjDigits);
+    return result[cnpj]?.latest ?? null;
   } catch (e) {
     console.error('Error fetching CVM fund quota:', e);
     return null;
@@ -1107,75 +1128,36 @@ async function fetchCvmFundQuotasBatch(
 
   const now = new Date();
 
-  // Tenta mês atual e vai voltando; em cada mês faz 1 varredura e atualiza "latest/previous" de vários CNPJs.
+  // Tenta mês atual e vai voltando; em cada mês usa scanInfDiarioForCnpjs (anti-OOM)
+  // que processa o CSV como Uint8Array byte-a-byte sem materializar a string gigante.
   for (let offset = 0; offset < 12 && missing.size > 0; offset++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
     const yyyy = d.getUTCFullYear();
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
     const yyyymm = `${yyyy}${mm}`;
 
-    const csv = await getInfDiarioCsv(yyyymm);
-    if (!csv) continue;
-
     console.log(`CVM INF_DIARIO (batch history): usando mês ${yyyymm} para ${missing.size} CNPJs`);
 
-    const text = String(csv);
-    const firstNl = text.search(/\r?\n/);
-    if (firstNl === -1) continue;
+    // Usa o scanner granular — baixa e descarta o ZIP/CSV sem cachear a string gigante.
+    const scanResult = await scanInfDiarioForCnpjs(yyyymm, new Set(Array.from(missing)));
 
-    const headerLine = text.slice(0, firstNl).replace(/\r$/, '');
-    const header = headerLine.split(';').map((h) => h.replace(/^\uFEFF/, '').trim());
-    const headerUpper = header.map((h) => h.toUpperCase());
+    for (const [cnpj, result] of Object.entries(scanResult)) {
+      if (!result) continue;
 
-    const idxCnpj = (() => {
-      const preferred = ['CNPJ_FUNDO_CLASSE', 'CNPJ_CLASSE', 'CNPJ_SUBCLASSE', 'CNPJ_FUNDO'];
-      for (const key of preferred) {
-        const idx = headerUpper.findIndex((h) => h === key);
-        if (idx !== -1) return idx;
+      const existingLatest = latestBy[cnpj];
+      const existingPrev = previousBy[cnpj];
+
+      // Incorpora o resultado do mês escaneado nas posições latest/previous
+      if (!existingLatest || result.latest.asOfDate > existingLatest.asOfDate) {
+        previousBy[cnpj] = existingLatest ?? result.previous ?? null;
+        latestBy[cnpj] = result.latest;
+      } else if (result.latest.asOfDate < existingLatest.asOfDate) {
+        if (!existingPrev || result.latest.asOfDate > existingPrev.asOfDate) {
+          previousBy[cnpj] = result.latest;
+        }
       }
-      return headerUpper.findIndex((h) => h.includes('CNPJ'));
-    })();
 
-    const idxDate = headerUpper.findIndex((h) => h === 'DT_COMPTC');
-    const idxQuota = headerUpper.findIndex((h) => h === 'VL_QUOTA');
-    if (idxCnpj === -1 || idxDate === -1 || idxQuota === -1) continue;
-
-    let i = firstNl;
-    while (i < text.length && missing.size > 0) {
-      if (text[i] === '\r') i++;
-      if (text[i] === '\n') i++;
-      if (i >= text.length) break;
-
-      let j = text.indexOf('\n', i);
-      if (j === -1) j = text.length;
-      const row = text.slice(i, j).replace(/\r$/, '');
-      i = j;
-      if (!row) continue;
-
-      const cols = row.split(';');
-      const cnpj = normalizeCnpj((cols[idxCnpj] ?? '').trim());
-      if (!missing.has(cnpj)) continue;
-
-      const date = (cols[idxDate] ?? '').trim();
-      const quotaRaw = (cols[idxQuota] ?? '').trim().replace(',', '.');
-      const quota = Number(quotaRaw);
-      if (!Number.isFinite(quota) || !date) continue;
-
-      const latest = latestBy[cnpj];
-      const prev = previousBy[cnpj];
-
-      if (!latest || date > latest.asOfDate) {
-        // sobe o latest e empurra o anterior
-        previousBy[cnpj] = latest;
-        latestBy[cnpj] = { asOfDate: date, quota };
-      } else if (date < latest.asOfDate && (!prev || date > prev.asOfDate)) {
-        // preenche/atualiza o "anterior" mais recente abaixo do latest
-        previousBy[cnpj] = { asOfDate: date, quota };
-      }
-    }
-
-    // Remove do missing quem já tem latest+previous
-    for (const cnpj of Array.from(missing)) {
+      // Se temos latest+previous, podemos remover do missing
       if (latestBy[cnpj] && previousBy[cnpj]) {
         missing.delete(cnpj);
       }
@@ -1193,7 +1175,7 @@ async function fetchCvmFundQuotasBatch(
 
     const value = {
       latest,
-      previous: previousBy[cnpj],
+      previous: previousBy[cnpj] ?? null,
     };
 
     out[cnpj] = value;
