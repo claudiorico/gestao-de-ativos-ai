@@ -338,6 +338,7 @@ export default function Settings() {
         assets: backup.data.assets,
         transactions: backup.data.transactions,
         dividends: backup.data.dividends,
+        cash_movements: backup.data.cash_movements,
         settings: backup.data.settings,
         metadata: backup.data.metadata,
       });
@@ -1197,63 +1198,15 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6 shadow-card">
-        <h3 className="text-lg font-semibold text-foreground mb-2">Preço médio por proventos</h3>
-        <p className="text-sm text-muted-foreground mb-6">
-          Define se alguns proventos devem reduzir o custo (preço médio) do ativo.
-        </p>
-
-        <div className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border border-border/50 p-4">
-            <div>
-              <p className="font-medium text-foreground">FIIs: rendimento reduz custo</p>
-              <p className="text-sm text-muted-foreground">
-                Regra usada: ao registrar <span className="font-medium">Yield/Rendimento</span> em FIIs,
-                o sistema pode tratar como retorno de capital e reduzir o custo efetivo.
-              </p>
-            </div>
-            <Switch
-              checked={settingsDraft.averagePriceAdjustments?.fiiYieldReducesCost ?? true}
-              onCheckedChange={(v) =>
-                setSettingsDraft((s) => ({
-                  ...s,
-                  averagePriceAdjustments: {
-                    fiiYieldReducesCost: v,
-                    jcpReducesCost: s.averagePriceAdjustments?.jcpReducesCost ?? false,
-                  },
-                }))
-              }
-              disabled={!isSettingsReady}
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-border/50 p-4">
-            <div>
-              <p className="font-medium text-foreground">JCP reduz custo</p>
-              <p className="text-sm text-muted-foreground">
-                Regra usada: quando habilitado, JCP pode ser tratado como retorno que reduz o custo.
-                Se você prefere tratar JCP apenas como renda (sem mexer no custo), deixe desativado.
-              </p>
-            </div>
-            <Switch
-              checked={settingsDraft.averagePriceAdjustments?.jcpReducesCost ?? false}
-              onCheckedChange={(v) =>
-                setSettingsDraft((s) => ({
-                  ...s,
-                  averagePriceAdjustments: {
-                    fiiYieldReducesCost: s.averagePriceAdjustments?.fiiYieldReducesCost ?? true,
-                    jcpReducesCost: v,
-                  },
-                }))
-              }
-              disabled={!isSettingsReady}
-            />
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Observação: isso afeta apenas o cálculo do seu preço médio/custo; não muda o registro do provento.
-          </p>
+      <div className="rounded-xl border border-border bg-card p-6 shadow-card opacity-60">
+        <div className="flex items-center gap-2 mb-2">
+          <h3 className="text-lg font-semibold text-foreground">Preço médio por proventos</h3>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Em breve</span>
         </div>
+        <p className="text-sm text-muted-foreground">
+          Configuração para reduzir o custo médio via proventos (ex.: rendimentos de FII como retorno de capital).
+          Esta funcionalidade está em desenvolvimento e será disponibilizada em uma versão futura.
+        </p>
       </div>
     </div>
   );

@@ -38,7 +38,9 @@ const normalizeStep = (step?: number) => {
 const floorToStep = (value: number, step: number) => {
   if (!Number.isFinite(value)) return 0;
   const s = normalizeStep(step);
-  return Math.max(0, Math.floor(value / s) * s);
+  // Epsilon corrige imprecisão IEEE 754: 0.29/0.01 = 28.999...→ 29
+  const epsilon = s * 1e-9;
+  return Math.max(0, Math.floor((value + epsilon) / s) * s);
 };
 
 function computeValues(assets: RebalanceInputAsset[], quantities: Record<string, number>) {
@@ -163,6 +165,9 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
     // REBALANCE_ONLY: vende sobrealocados para comprar subalocados (patrimônio total constante)
     const MAX_STEPS = 100_000;
     let steps = 0;
+    // Ativos já tentados na iteração atual e não vendáveis (diferença < 1 lote).
+    // Resetado quando uma compra ocorre, pois o portfólio mudou.
+    const skippedSellIds = new Set<string>();
 
     while (steps < MAX_STEPS) {
       steps++;
@@ -170,7 +175,7 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
       const diffs = computeDiffs({ assets, quantities, targetPortfolioValue });
 
       const toSell = diffs
-        .filter((d) => d.difference < 0)
+        .filter((d) => d.difference < 0 && !skippedSellIds.has(d.id))
         .sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference));
 
       const toBuy = diffs
@@ -186,7 +191,8 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
       const currentQty = quantities[sellPick.id] ?? 0;
 
       if (!sellAsset || currentQty <= 0) {
-        break;
+        skippedSellIds.add(sellPick.id);
+        continue;
       }
 
       const step = normalizeStep(sellAsset.lotSize);
@@ -194,8 +200,9 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
       const sellQty = Math.min(currentQty, Math.max(0, maxSellByDiff));
 
       if (sellQty <= 0) {
-        // Nada vendável -> encerra
-        break;
+        // Diferença menor que 1 lote — pula este ativo e tenta o próximo sobrealocado
+        skippedSellIds.add(sellPick.id);
+        continue;
       }
 
       // Vende TUDO de uma vez para este ativo (como descrito), convertendo em caixa
@@ -236,6 +243,8 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
         quantities[buyPick.id] = (quantities[buyPick.id] ?? 0) + buyQty;
         remainingCash = Math.max(0, remainingCash - buyPick.currentPrice * buyQty);
         boughtSomething = true;
+        // Portfólio mudou: ativos anteriormente intocáveis podem agora ter lote vendável
+        skippedSellIds.clear();
 
         if (!canBuyAny()) break;
       }
