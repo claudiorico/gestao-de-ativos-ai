@@ -8,6 +8,7 @@ import { GoogleUserProvider } from "@/contexts/GoogleUserContext";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { VaultGuard } from "@/components/vault/VaultGuard";
 import { useAutoSync } from "@/hooks/use-auto-sync";
+import Landing from "./pages/Landing";
 import Index from "./pages/Index";
 import AuthDiagnostics from "./pages/AuthDiagnostics";
 import Portfolio from "./pages/Portfolio";
@@ -50,13 +51,14 @@ function AppContent() {
       <Sonner />
         <Routes>
           {/* Public pages (no login required) */}
+          <Route path="/" element={<Landing />} />
           <Route path="/auth/diagnostico" element={<AuthDiagnostics />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/ajuda" element={<Help />} />
 
           {/* Everything requires: 1) Google login 2) Vault unlock */}
           <Route element={<ProtectedLayout />}>
-            <Route path="/" element={<Index />} />
+            <Route path="/home" element={<Index />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/portfolio/:portfolioId" element={<PortfolioDetail />} />
             <Route path="/balancing" element={<Balancing />} />

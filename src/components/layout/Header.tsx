@@ -1,5 +1,5 @@
-import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut, Heart } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import { getStoredTheme, applyTheme, resolveTheme } from "@/lib/theme";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,13 @@ import { PrivacyBadge } from "./PrivacyBadge";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { useAuthUser } from "@/contexts/GoogleUserContext";
 import { BackupRestoreDialog } from "@/components/backup/BackupRestoreDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { isGoogleDriveConnected } from "@/lib/google-drive";
 import { getSyncStatus } from "@/lib/backup";
 
@@ -108,6 +115,44 @@ export function Header() {
             }
           />
         </div>
+
+        {/* Donation */}
+        <Dialog>
+          <DialogTrigger asChild>
+            <motion.div whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 rounded-lg"
+                title="Apoiar o projeto"
+              >
+                <Heart className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </motion.div>
+          </DialogTrigger>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Heart className="h-5 w-5 text-rose-500" />
+                Apoiar o projeto
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm text-muted-foreground">
+              <p>
+                O Cofre Investimentos é gratuito e de código aberto.
+                Se ele te ajuda a cuidar melhor dos seus investimentos,
+                considere apoiar o desenvolvimento.
+              </p>
+              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+                <p className="font-medium text-foreground">PIX</p>
+                <p className="font-mono text-xs break-all select-all">claudiorico81@gmail.com</p>
+              </div>
+              <p className="text-xs">
+                Qualquer valor é bem-vindo e ajuda a manter o projeto ativo. Obrigado!
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Lock Vault */}
         <motion.div whileTap={{ scale: 0.95 }} className="hidden sm:block">
