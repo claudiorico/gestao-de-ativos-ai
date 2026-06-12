@@ -1,5 +1,11 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/sitemap.xml", "destination": "/sitemap.xml" },
+    { "source": "/robots.txt", "destination": "/robots.txt" },
+    { "source": "/favicon.svg", "destination": "/favicon.svg" },
+    { "source": "/og-image.png", "destination": "/og-image.png" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
