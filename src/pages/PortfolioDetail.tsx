@@ -34,7 +34,7 @@ export default function PortfolioDetailPage() {
   const { portfolioId } = useParams<{ portfolioId: string }>();
   const [searchParams] = useSearchParams();
   const highlightAssetId = searchParams.get("asset");
-  const { portfoliosWithAssets, isLoading, refresh } = usePortfolios();
+  const { portfoliosWithAssets, isLoading } = usePortfolios();
   const { getDividends, saveAsset } = useSecureStorage();
 
   const [dividends, setDividends] = useState<Dividend[]>([]);
@@ -43,10 +43,21 @@ export default function PortfolioDetailPage() {
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
   const [editingTargetValue, setEditingTargetValue] = useState("");
 
+  // Overrides otimistas: aplicados imediatamente ao salvar, sem chamar refresh().
+  // Evitam o isLoading=true que desmontava a tabela e causava scroll para o topo.
+  // O vault persiste o valor em background; ao sair e voltar, os dados carregados já estarão corretos.
+  const [localTargets, setLocalTargets] = useState<Record<string, number>>({});
+
   const saveTargetAllocation = useCallback(
     async (a: AssetWithPrice, rawValue: string) => {
       const parsed = parseFloat(rawValue.replace(",", "."));
       const newTarget = Number.isFinite(parsed) && parsed >= 0 ? parsed : (a.targetAllocation ?? 0);
+
+      // Atualiza estado local instantaneamente (sem re-render da tabela inteira)
+      setLocalTargets((prev) => ({ ...prev, [a.id]: newTarget }));
+      setEditingTargetId(null);
+
+      // Persiste no vault em background
       const assetToSave: Asset = {
         id: a.id,
         portfolioId: a.portfolioId,
@@ -60,10 +71,8 @@ export default function PortfolioDetailPage() {
         updatedAt: Date.now(),
       };
       await saveAsset(assetToSave);
-      refresh();
-      setEditingTargetId(null);
     },
-    [saveAsset, refresh]
+    [saveAsset]
   );
 
   useEffect(() => {
@@ -91,6 +100,17 @@ export default function PortfolioDetailPage() {
     if (!portfolioId) return null;
     return portfoliosWithAssets.find((p) => p.id === portfolioId) ?? null;
   }, [portfoliosWithAssets, portfolioId]);
+
+  // Total de % alvo configurado — atualiza ao vivo enquanto o usuário digita
+  const totalTargetAllocation = useMemo(() => {
+    if (!portfolio) return 0;
+    return portfolio.assets.reduce((sum, a) => {
+      if (editingTargetId === a.id) {
+        return sum + (parseFloat(editingTargetValue) || 0);
+      }
+      return sum + (localTargets[a.id] ?? a.targetAllocation ?? 0);
+    }, 0);
+  }, [portfolio, localTargets, editingTargetId, editingTargetValue]);
 
   // Quando vem da busca (?asset=...), rola até a linha do ativo e a destaca brevemente.
   useEffect(() => {
@@ -249,11 +269,31 @@ export default function PortfolioDetailPage() {
             </div>
 
             <div className="rounded-xl border border-border bg-card p-0 shadow-card overflow-hidden">
-              <div className="p-6 pb-4">
-                <h2 className="text-lg font-semibold text-foreground">Ativos</h2>
-                <p className="text-sm text-muted-foreground">
-                  Ganho total e alocação atual dentro da carteira
-                </p>
+              <div className="flex items-center justify-between gap-4 p-6 pb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Ativos</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Ganho total e alocação atual dentro da carteira
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className={`text-lg font-bold tabular-nums ${
+                    totalTargetAllocation > 100.5
+                      ? "text-destructive"
+                      : totalTargetAllocation >= 99.5
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-amber-500"
+                  }`}>
+                    {totalTargetAllocation.toFixed(0)}%
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {totalTargetAllocation >= 99.5 && totalTargetAllocation <= 100.5
+                      ? "alvo configurado ✓"
+                      : totalTargetAllocation > 100.5
+                        ? `excede em ${(totalTargetAllocation - 100).toFixed(0)}%`
+                        : `faltam ${(100 - totalTargetAllocation).toFixed(0)}%`}
+                  </div>
+                </div>
               </div>
 
               <div className="overflow-auto">
@@ -340,8 +380,9 @@ export default function PortfolioDetailPage() {
                               className="text-right tabular-nums"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const current = localTargets[a.id] ?? a.targetAllocation ?? 0;
                                 setEditingTargetId(a.id);
-                                setEditingTargetValue(String(a.targetAllocation ?? 0));
+                                setEditingTargetValue(String(current));
                               }}
                             >
                               {editingTargetId === a.id ? (
@@ -367,14 +408,14 @@ export default function PortfolioDetailPage() {
                               ) : (
                                 <span
                                   className={`group inline-flex items-center gap-1 cursor-pointer hover:text-primary ${
-                                    (a.targetAllocation ?? 0) > 0
+                                    (localTargets[a.id] ?? a.targetAllocation ?? 0) > 0
                                       ? "text-foreground"
                                       : "text-muted-foreground"
                                   }`}
                                   title="Clique para editar"
                                 >
-                                  {(a.targetAllocation ?? 0) > 0
-                                    ? `${a.targetAllocation}%`
+                                  {(localTargets[a.id] ?? a.targetAllocation ?? 0) > 0
+                                    ? `${localTargets[a.id] ?? a.targetAllocation}%`
                                     : "—"}
                                   <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />
                                 </span>
