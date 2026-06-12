@@ -91,7 +91,7 @@ export function usePortfolios() {
   // forceQuotes=true deve ser usado apenas no desbloqueio/mount inicial para garantir
   // cotações frescas. Mutações de dados locais (salvar ativo, mover, etc.) devem passar
   // forceQuotes=false para reutilizar o cache (TTL 5 min) e não bater na edge function.
-  const loadPortfolios = useCallback(async (opts?: { forceQuotes?: boolean }) => {
+  const loadPortfolios = useCallback(async (opts?: { forceQuotes?: boolean; silent?: boolean }) => {
     if (!isUnlocked) {
       setPortfolios([]);
       setPortfoliosWithAssets([]);
@@ -101,7 +101,9 @@ export function usePortfolios() {
     }
 
     try {
-      setIsLoading(true);
+      // Reloads silenciosos (vault-data-changed) não alteram isLoading para evitar
+      // que o spinner desmonte a tabela e cause scroll indesejado.
+      if (!opts?.silent) setIsLoading(true);
       setError(null);
 
       const [loadedPortfolios, loadedAssets, loadedTransactions] = await Promise.all([
@@ -125,7 +127,7 @@ export function usePortfolios() {
       setError('Erro ao carregar portfólios');
       console.error('Error loading portfolios:', err);
     } finally {
-      setIsLoading(false);
+      if (!opts?.silent) setIsLoading(false);
     }
   }, [isUnlocked, getPortfolios, getAssets, getTransactions, fetchQuotes]);
 
@@ -280,7 +282,7 @@ export function usePortfolios() {
     const onVaultDataChanged = () => {
       if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
       reloadDebounceRef.current = setTimeout(() => {
-        loadPortfolios();
+        loadPortfolios({ silent: true });
       }, 600);
     };
 
