@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2, ArrowRightLeft } from "lucide-react";
+import { ArrowLeft, Loader2, ArrowRightLeft, Pencil } from "lucide-react";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/table";
 import { usePortfolios } from "@/hooks/usePortfolios";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
-import type { Dividend } from "@/types/financial";
+import type { Asset, Dividend } from "@/types/financial";
+import type { AssetWithPrice } from "@/hooks/usePortfolios";
 import { Blur } from "@/components/ui/blur";
 
 const formatCurrency = (value: number) =>
@@ -34,11 +35,36 @@ export default function PortfolioDetailPage() {
   const [searchParams] = useSearchParams();
   const highlightAssetId = searchParams.get("asset");
   const { portfoliosWithAssets, isLoading, refresh } = usePortfolios();
-  const { getDividends } = useSecureStorage();
+  const { getDividends, saveAsset } = useSecureStorage();
 
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [isDividendsLoading, setIsDividendsLoading] = useState(false);
   const [assetToMove, setAssetToMove] = useState<MoveAssetTarget | null>(null);
+  const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
+  const [editingTargetValue, setEditingTargetValue] = useState("");
+
+  const saveTargetAllocation = useCallback(
+    async (a: AssetWithPrice, rawValue: string) => {
+      const parsed = parseFloat(rawValue.replace(",", "."));
+      const newTarget = Number.isFinite(parsed) && parsed >= 0 ? parsed : (a.targetAllocation ?? 0);
+      const assetToSave: Asset = {
+        id: a.id,
+        portfolioId: a.portfolioId,
+        ticker: a.ticker,
+        name: a.name,
+        type: a.type,
+        targetAllocation: newTarget,
+        shares: a.shares,
+        averagePrice: a.averagePrice,
+        createdAt: a.createdAt,
+        updatedAt: Date.now(),
+      };
+      await saveAsset(assetToSave);
+      refresh();
+      setEditingTargetId(null);
+    },
+    [saveAsset, refresh]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -240,6 +266,7 @@ export default function PortfolioDetailPage() {
                       <TableHead className="text-right">Preço</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
                       <TableHead className="text-right">Alocação</TableHead>
+                      <TableHead className="text-right">% Alvo</TableHead>
                       <TableHead className="text-right">Proventos</TableHead>
                       <TableHead className="text-right">Ganho total (c/ prov.)</TableHead>
                       <TableHead className="text-right">Ganho dia</TableHead>
@@ -308,6 +335,50 @@ export default function PortfolioDetailPage() {
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
                               {allocation.toFixed(1)}%
+                            </TableCell>
+                            <TableCell
+                              className="text-right tabular-nums"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingTargetId(a.id);
+                                setEditingTargetValue(String(a.targetAllocation ?? 0));
+                              }}
+                            >
+                              {editingTargetId === a.id ? (
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="1"
+                                  className="w-16 text-right bg-transparent border-b border-primary outline-none text-sm tabular-nums"
+                                  value={editingTargetValue}
+                                  onChange={(e) => setEditingTargetValue(e.target.value)}
+                                  onBlur={() => saveTargetAllocation(a, editingTargetValue)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === "Tab") {
+                                      e.preventDefault();
+                                      saveTargetAllocation(a, editingTargetValue);
+                                    }
+                                    if (e.key === "Escape") setEditingTargetId(null);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <span
+                                  className={`group inline-flex items-center gap-1 cursor-pointer hover:text-primary ${
+                                    (a.targetAllocation ?? 0) > 0
+                                      ? "text-foreground"
+                                      : "text-muted-foreground"
+                                  }`}
+                                  title="Clique para editar"
+                                >
+                                  {(a.targetAllocation ?? 0) > 0
+                                    ? `${a.targetAllocation}%`
+                                    : "—"}
+                                  <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
                               <Blur>{formatCurrency(dividendsTotal)}</Blur>
