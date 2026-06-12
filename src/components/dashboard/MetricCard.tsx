@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Blur } from "@/components/ui/blur";
 
 interface MetricCardProps {
   title: string;
@@ -65,7 +66,7 @@ export function MetricCard({
               </span>
             ) : null}
             <p className="min-w-0 whitespace-normal break-words text-sm font-bold leading-snug tracking-tight text-foreground tabular-nums sm:text-3xl sm:leading-none">
-              {valueBody}
+              <Blur>{valueBody}</Blur>
             </p>
           </div>
           {change !== undefined && (

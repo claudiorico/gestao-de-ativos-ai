@@ -1,4 +1,4 @@
-import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut, Heart } from "lucide-react";
+import { Sun, Moon, User, Lock, Cloud, CloudOff, HardDrive, LogOut, Heart, Eye, EyeOff } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getStoredTheme, applyTheme, resolveTheme } from "@/lib/theme";
 import { motion } from "framer-motion";
@@ -19,11 +19,13 @@ import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { useAuthUser } from "@/contexts/GoogleUserContext";
 import { BackupRestoreDialog } from "@/components/backup/BackupRestoreDialog";
 import { DonationDialog } from "@/components/DonationDialog";
+import { usePrivacyMode } from "@/hooks/usePrivacyMode";
 import { isGoogleDriveConnected } from "@/lib/google-drive";
 import { getSyncStatus } from "@/lib/backup";
 
 export function Header() {
   const [isDark, setIsDark] = useState(() => resolveTheme(getStoredTheme()) === 'dark');
+  const { privacyMode, togglePrivacyMode } = usePrivacyMode();
   const [syncConnected, setSyncConnected] = useState(false);
   const [needsReauth, setNeedsReauth] = useState(false);
   const { lockVault } = useSecureStorage();
@@ -109,6 +111,23 @@ export function Header() {
             }
           />
         </div>
+
+        {/* Privacy toggle */}
+        <motion.div whileTap={{ scale: 0.95 }}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={togglePrivacyMode}
+            className="h-9 w-9 rounded-lg"
+            title={privacyMode ? "Mostrar valores" : "Ocultar valores"}
+          >
+            {privacyMode ? (
+              <EyeOff className="h-4 w-4 text-primary" />
+            ) : (
+              <Eye className="h-4 w-4 text-muted-foreground" />
+            )}
+          </Button>
+        </motion.div>
 
         {/* Donation */}
         <DonationDialog

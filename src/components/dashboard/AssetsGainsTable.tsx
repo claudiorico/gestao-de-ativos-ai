@@ -1,4 +1,5 @@
  import { useMemo, useState } from "react";
+import { Blur } from "@/components/ui/blur";
  import { useNavigate } from "react-router-dom";
  import { motion } from "framer-motion";
  import { Card } from "@/components/ui/card";
@@ -163,8 +164,10 @@
  
    const formatCurrency = (value: number) =>
      new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
- 
+
    const formatPercent = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+
+   const B = Blur;
  
    return (
      <motion.div
@@ -320,13 +323,13 @@
                          </div>
                        </TableCell>
                        <TableCell className="text-right text-sm hidden md:table-cell">
-                         {asset.shares.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
+                         <B>{asset.shares.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</B>
                        </TableCell>
                        <TableCell className="text-right text-sm hidden md:table-cell">
-                         {formatCurrency(asset.currentPrice)}
+                         <B>{formatCurrency(asset.currentPrice)}</B>
                        </TableCell>
                        <TableCell className="text-right font-medium">
-                         {formatCurrency(asset.currentValue)}
+                         <B>{formatCurrency(asset.currentValue)}</B>
                        </TableCell>
                        <TableCell
                          className={`text-right font-semibold ${
@@ -347,7 +350,7 @@
                            asset.dayGain >= 0 ? "text-green-600" : "text-red-600"
                          }`}
                        >
-                         {formatCurrency(asset.dayGain)}
+                         <B>{formatCurrency(asset.dayGain)}</B>
                        </TableCell>
                        <TableCell
                          className={`text-right font-medium hidden lg:table-cell ${
@@ -355,12 +358,12 @@
                          }`}
                        >
                          <div className="flex flex-col items-end">
-                           <span>{formatCurrency(asset.totalGain)}</span>
+                           <B>{formatCurrency(asset.totalGain)}</B>
                            <span className="text-xs">{formatPercent(asset.totalGainPercent)}</span>
                          </div>
                        </TableCell>
                        <TableCell className="text-right text-sm hidden xl:table-cell">
-                         {asset.allocation.toFixed(1)}%
+                         <B>{asset.allocation.toFixed(1)}%</B>
                        </TableCell>
                      </TableRow>
                    ))
@@ -385,7 +388,7 @@
                        : "text-red-600"
                    }`}
                  >
-                   {formatCurrency(sortedAssets.reduce((sum, a) => sum + a.dayGain, 0))}
+                   <B>{formatCurrency(sortedAssets.reduce((sum, a) => sum + a.dayGain, 0))}</B>
                  </span>
                </div>
              </div>

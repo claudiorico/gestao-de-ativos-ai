@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Blur } from '@/components/ui/blur';
 import { motion } from 'framer-motion';
 import {
   MoreHorizontal,
@@ -115,7 +116,7 @@ export function PortfolioCard({
                 </p>
               )}
               <p className="text-2xl font-bold text-foreground tabular-nums mt-1">
-                {formatCurrency(portfolio.currentValue)}
+                <Blur>{formatCurrency(portfolio.currentValue)}</Blur>
               </p>
               {portfolio.totalGain !== 0 && (
                 <div className={cn(
@@ -128,10 +129,10 @@ export function PortfolioCard({
                     <TrendingDown className="h-3.5 w-3.5" />
                   )}
                   <span className="tabular-nums font-medium">
-                    {formatCurrency(portfolio.totalGain)}
+                    <Blur>{formatCurrency(portfolio.totalGain)}</Blur>
                   </span>
                   <span className="text-muted-foreground">
-                    ({formatPercent(portfolio.totalGainPercent)})
+                    (<Blur>{formatPercent(portfolio.totalGainPercent)}</Blur>)
                   </span>
                 </div>
               )}
