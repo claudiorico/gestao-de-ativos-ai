@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>OG Image — Cofre Investimentos — 1200×630</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 1200px;
+      height: 630px;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      background: #02061a;
+    }
+
+    .card {
+      width: 1200px;
+      height: 630px;
+      position: relative;
+      background: linear-gradient(145deg, #030b1f 0%, #01061a 55%, #031220 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 72px 96px;
+      overflow: hidden;
+    }
+
+    /* Grade sutil */
+    .grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(36,206,107,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(36,206,107,0.04) 1px, transparent 1px);
+      background-size: 72px 72px;
+    }
+
+    /* Brilho verde canto superior direito */
+    .glow-tr {
+      position: absolute;
+      top: -120px; right: -80px;
+      width: 520px; height: 520px;
+      background: radial-gradient(circle, rgba(34,197,94,0.15) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    /* Brilho navy canto inferior esquerdo */
+    .glow-bl {
+      position: absolute;
+      bottom: -100px; left: -60px;
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(1,23,82,0.5) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    /* Borda verde esquerda */
+    .accent-bar {
+      position: absolute;
+      left: 0; top: 48px; bottom: 48px;
+      width: 4px;
+      border-radius: 0 4px 4px 0;
+      background: linear-gradient(to bottom, transparent 0%, #22c55e 25%, #22c55e 75%, transparent 100%);
+      opacity: 0.7;
+    }
+
+    /* Conteúdo */
+    .content { position: relative; z-index: 1; }
+
+    /* Badge */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(34,197,94,0.1);
+      border: 1px solid rgba(34,197,94,0.22);
+      border-radius: 999px;
+      padding: 7px 18px;
+      margin-bottom: 32px;
+    }
+    .badge-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 10px rgba(34,197,94,0.9);
+    }
+    .badge-label {
+      font-size: 13px; font-weight: 500;
+      color: #86efac; letter-spacing: 0.04em;
+    }
+
+    /* Cabeçalho: ícone + nome */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      margin-bottom: 18px;
+    }
+
+    /* Ícone SVG do cofre (replica o favicon) */
+    .vault-icon {
+      width: 72px; height: 72px;
+      flex-shrink: 0;
+      filter: drop-shadow(0 4px 20px rgba(34,197,94,0.4));
+    }
+
+    .app-name {
+      font-size: 58px;
+      font-weight: 800;
+      color: #f0f4ff;
+      letter-spacing: -0.025em;
+      line-height: 1;
+    }
+    .app-name-accent { color: #22c55e; }
+
+    /* Tagline */
+    .tagline {
+      font-size: 26px;
+      font-weight: 600;
+      color: #a8bfdb;
+      margin-bottom: 10px;
+      letter-spacing: -0.01em;
+    }
+    .tagline-highlight { color: #f0f4ff; }
+
+    /* Descrição curta */
+    .desc {
+      font-size: 16px;
+      color: #5b7494;
+      max-width: 580px;
+      line-height: 1.55;
+      margin-bottom: 40px;
+    }
+
+    /* Chips de features */
+    .chips {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 10px;
+      padding: 9px 15px;
+    }
+    .chip-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
+      opacity: 0.8;
+    }
+    .chip-text {
+      font-size: 13px;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    /* URL rodapé */
+    .footer {
+      position: absolute;
+      bottom: 40px; right: 96px;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .footer-url {
+      font-size: 15px;
+      color: #3a5070;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="grid"></div>
+  <div class="glow-tr"></div>
+  <div class="glow-bl"></div>
+  <div class="accent-bar"></div>
+
+  <div class="content">
+    <div class="badge">
+      <div class="badge-dot"></div>
+      <span class="badge-label">Seus dados ficam só no seu dispositivo</span>
+    </div>
+
+    <div class="header">
+      <!-- Ícone do cofre (replica o favicon.svg) -->
+      <svg class="vault-icon" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <rect width="64" height="64" rx="14" fill="#052e16"/>
+        <circle cx="32" cy="32" r="22" fill="none" stroke="#22c55e" stroke-width="2.5"/>
+        <circle cx="32" cy="32" r="14" fill="none" stroke="#16a34a" stroke-width="1.5"/>
+        <line x1="32" y1="8"  x2="32" y2="14" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="56" y1="32" x2="50" y2="32" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="32" y1="56" x2="32" y2="50" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="8"  y1="32" x2="14" y2="32" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="32" cy="32" r="5.5" fill="#22c55e"/>
+        <text x="32" y="35.5" text-anchor="middle" fill="#052e16"
+              font-size="6.5" font-family="Arial, sans-serif" font-weight="900"
+              letter-spacing="-0.5">R$</text>
+      </svg>
+
+      <h1 class="app-name">Cofre <span class="app-name-accent">Investimentos</span></h1>
+    </div>
+
+    <p class="tagline">
+      <span class="tagline-highlight">Seus investimentos.</span> Só seus.
+    </p>
+
+    <p class="desc">
+      Portfólio, IR e proventos com os dados criptografados no seu próprio
+      dispositivo — nenhum servidor acessa suas informações financeiras.
+    </p>
+
+    <div class="chips">
+      <div class="chip"><div class="chip-dot"></div><span class="chip-text">Criptografia AES-256 local</span></div>
+      <div class="chip"><div class="chip-dot"></div><span class="chip-text">IR automático (DARF)</span></div>
+      <div class="chip"><div class="chip-dot"></div><span class="chip-text">Backup Google Drive</span></div>
+      <div class="chip"><div class="chip-dot"></div><span class="chip-text">B3 · FII · Tesouro Direto</span></div>
+      <div class="chip"><div class="chip-dot"></div><span class="chip-text">Gratuito e código aberto</span></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span class="footer-url">cofreinvestimentos.com.br</span>
+  </div>
+</div>
+</body>
+</html>
