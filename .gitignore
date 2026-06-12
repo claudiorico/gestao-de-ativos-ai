@@ -15,6 +15,11 @@ dist-ssr
 # Dados pessoais de importação (não comitar)
 b3-import/
 
+# Arquivos Markdown de desenvolvimento (TODOs, revisões, planos, relatórios)
+# Manter apenas README.md
+*.md
+!README.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
