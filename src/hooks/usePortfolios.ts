@@ -87,8 +87,11 @@ export function usePortfolios() {
     return map;
   }, [allTransactions]);
 
-  // Load portfolios and assets
-  const loadPortfolios = useCallback(async () => {
+  // Load portfolios and assets.
+  // forceQuotes=true deve ser usado apenas no desbloqueio/mount inicial para garantir
+  // cotações frescas. Mutações de dados locais (salvar ativo, mover, etc.) devem passar
+  // forceQuotes=false para reutilizar o cache (TTL 5 min) e não bater na edge function.
+  const loadPortfolios = useCallback(async (opts?: { forceQuotes?: boolean }) => {
     if (!isUnlocked) {
       setPortfolios([]);
       setPortfoliosWithAssets([]);
@@ -111,14 +114,12 @@ export function usePortfolios() {
       setAllAssets(loadedAssets);
       setAllTransactions(loadedTransactions);
 
-      // Fetch quotes for all tickers (inclui cripto e fundos CVM)
       const tickers = loadedAssets
         .filter((a) => ['stock', 'reit', 'etf', 'crypto', 'investment_fund', 'fixed_income'].includes(a.type))
         .map((a) => a.ticker);
-      
+
       if (tickers.length > 0) {
-        // Ao abrir/desbloquear o cofre, força refresh para não depender do cache/intervalo.
-        await fetchQuotes(tickers, { force: true });
+        await fetchQuotes(tickers, { force: opts?.forceQuotes === true });
       }
     } catch (err) {
       setError('Erro ao carregar portfólios');
@@ -263,9 +264,10 @@ export function usePortfolios() {
     [deletePortfolio, notifyDataChange, loadPortfolios]
   );
 
-  // Load on mount and when vault unlocks
+  // No desbloqueio/mount inicial, força cotações frescas.
+  // Recargas subsequentes (mutações de dados) reutilizam o cache.
   useEffect(() => {
-    loadPortfolios();
+    loadPortfolios({ forceQuotes: true });
   }, [loadPortfolios]);
 
   // Recarrega automaticamente quando qualquer parte do cofre mudar (ex.: manutenção de tickers).
