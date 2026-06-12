@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Blur } from '@/components/ui/blur';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
 import { Plus, Loader2, RefreshCw } from 'lucide-react';
@@ -141,7 +142,7 @@ export default function PortfolioPage() {
                 <>
                   <span className="whitespace-nowrap">Patrimônio total:</span>{' '}
                   <span className="font-semibold text-foreground">
-                    {formatCurrency(totalValue)}
+                    <Blur>{formatCurrency(totalValue)}</Blur>
                   </span>
                   <span className="text-muted-foreground">
                     <span className="mx-1">•</span>

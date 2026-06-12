@@ -1,5 +1,7 @@
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { Blur } from "@/components/ui/blur";
+import { usePrivacyMode } from "@/hooks/usePrivacyMode";
 
 interface AllocationData {
   portfolioId?: string;
@@ -23,6 +25,8 @@ const formatCurrency = (value: number) => {
 };
 
 export function AllocationChart({ data, totalValue, onSelectPortfolio }: AllocationChartProps) {
+  const { privacyMode } = usePrivacyMode();
+
   if (!data.length) {
     return (
       <motion.div
@@ -97,7 +101,7 @@ export function AllocationChart({ data, totalValue, onSelectPortfolio }: Allocat
                   name: string,
                   props: { payload: AllocationData }
                 ) => [
-                  `${value}% - ${formatCurrency(props.payload.amount)}`,
+                  privacyMode ? `${value}% - ••••` : `${value}% - ${formatCurrency(props.payload.amount)}`,
                   props.payload.name,
                 ]}
               />
@@ -128,7 +132,7 @@ export function AllocationChart({ data, totalValue, onSelectPortfolio }: Allocat
                   {item.value}%
                 </span>
                 <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-                  {formatCurrency(item.amount)}
+                  <Blur>{formatCurrency(item.amount)}</Blur>
                 </span>
               </div>
             </motion.div>

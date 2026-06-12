@@ -9,6 +9,7 @@ import {
   AreaChart,
 } from "recharts";
 import { useMemo } from "react";
+import { usePrivacyMode } from "@/hooks/usePrivacyMode";
 
 interface PatrimonyChartProps {
   totalValue: number;
@@ -24,6 +25,8 @@ const formatCurrency = (value: number) => {
 };
 
 export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
+  const { privacyMode } = usePrivacyMode();
+
   // Generate simulated historical data based on current value
   // In a real app, this would come from transaction history
   const data = useMemo(() => {
@@ -119,7 +122,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
               axisLine={false}
               tickLine={false}
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-              tickFormatter={formatCurrency}
+              tickFormatter={(v: number) => privacyMode ? '••••' : formatCurrency(v)}
               width={60}
             />
             <Tooltip
@@ -129,7 +132,7 @@ export function PatrimonyChart({ totalValue }: PatrimonyChartProps) {
                 borderRadius: "12px",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
               }}
-              formatter={(value: number) => [formatCurrency(value), "Patrimônio"]}
+              formatter={(value: number) => [privacyMode ? '••••' : formatCurrency(value), "Patrimônio"]}
               labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
             />
             <Area

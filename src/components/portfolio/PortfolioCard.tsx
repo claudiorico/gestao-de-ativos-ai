@@ -295,7 +295,7 @@ export function PortfolioCard({
                                 {(asset.name || asset.ticker).toUpperCase()}
                               </div>
                               <div className="text-xs text-muted-foreground truncate">
-                                <span className="font-mono">{asset.ticker}</span> • {formatCurrency(asset.currentPrice)} × {asset.shares}
+                                <span className="font-mono">{asset.ticker}</span> • <Blur>{formatCurrency(asset.currentPrice)}</Blur> × {asset.shares}
                               </div>
                             </div>
                             <span
@@ -313,13 +313,13 @@ export function PortfolioCard({
                          <div className="flex items-center justify-between gap-2 sm:justify-end">
                           <div className="text-right">
                             <div className="tabular-nums font-medium text-foreground">
-                              {formatCurrency(asset.currentValue)}
+                              <Blur>{formatCurrency(asset.currentValue)}</Blur>
                             </div>
                             <div className={cn(
                               "text-xs tabular-nums",
                               asset.gain >= 0 ? "text-success" : "text-loss"
                             )}>
-                              {asset.gain >= 0 ? '+' : ''}{formatCurrency(asset.gain)}
+                              {asset.gain >= 0 ? '+' : ''}<Blur>{formatCurrency(asset.gain)}</Blur>
                             </div>
                           </div>
                            <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">

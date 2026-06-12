@@ -12,7 +12,7 @@ export function Blur({ children, className }: BlurProps) {
     <span
       className={cn(
         'transition-all duration-200',
-        privacyMode && 'text-transparent bg-foreground/20 rounded blur-[2px] select-none',
+        privacyMode && 'text-transparent bg-foreground/15 rounded-md blur-[3px] select-none',
         className,
       )}
     >

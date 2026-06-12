@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Blur } from "@/components/ui/blur";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -522,7 +523,7 @@ export default function Transactions() {
               <div>
                 <p className="text-sm text-muted-foreground">Compras {totalsLabel}</p>
                 <p className="text-xl font-bold text-foreground tabular-nums">
-                  {formatCurrency(monthTotals.purchases)}
+                  <Blur>{formatCurrency(monthTotals.purchases)}</Blur>
                 </p>
               </div>
             </div>
@@ -536,7 +537,7 @@ export default function Transactions() {
               <div>
                 <p className="text-sm text-muted-foreground">Vendas {totalsLabel}</p>
                 <p className="text-xl font-bold text-foreground tabular-nums">
-                  {formatCurrency(monthTotals.sales)}
+                  <Blur>{formatCurrency(monthTotals.sales)}</Blur>
                 </p>
               </div>
             </div>
@@ -550,7 +551,7 @@ export default function Transactions() {
               <div>
                 <p className="text-sm text-muted-foreground">Proventos {totalsLabel}</p>
                 <p className="text-xl font-bold text-foreground tabular-nums">
-                  {formatCurrency(monthTotals.proventos)}
+                  <Blur>{formatCurrency(monthTotals.proventos)}</Blur>
                 </p>
               </div>
             </div>
@@ -621,7 +622,7 @@ export default function Transactions() {
                         </div>
                         {typeof row.shares === "number" && typeof row.price === "number" && (
                           <p className="text-sm text-muted-foreground">
-                            {row.shares} × {formatCurrency(row.price)}
+                            {row.shares} × <Blur>{formatCurrency(row.price)}</Blur>
                           </p>
                         )}
                       </div>
@@ -636,7 +637,7 @@ export default function Transactions() {
                           )}
                         >
                           {row.total < 0 ? "-" : "+"}
-                          {formatCurrency(Math.abs(row.total))}
+                          <Blur>{formatCurrency(Math.abs(row.total))}</Blur>
                         </p>
                         <p className="text-sm text-muted-foreground">{formatDate(row.date)}</p>
                       </div>

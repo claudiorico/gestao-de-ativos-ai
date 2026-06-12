@@ -11,6 +11,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import type { Dividend } from "@/types/financial";
+import { Blur } from "@/components/ui/blur";
+import { usePrivacyMode } from "@/hooks/usePrivacyMode";
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat("pt-BR", {
@@ -23,6 +25,7 @@ const MONTH_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "S
 
 export function DividendsChart() {
   const { isUnlocked, getDividends } = useSecureStorage();
+  const { privacyMode } = usePrivacyMode();
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -107,7 +110,7 @@ export function DividendsChart() {
               </span>
             ) : null}
             <p className="min-w-0 whitespace-normal break-words text-lg font-bold leading-snug tracking-tight text-foreground tabular-nums sm:text-2xl sm:leading-none">
-              {totalValueBody}
+              <Blur>{totalValueBody}</Blur>
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -149,7 +152,7 @@ export function DividendsChart() {
                 borderRadius: "12px",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
               }}
-              formatter={(value: number) => [formatCurrency(value), "Proventos"]}
+              formatter={(value: number) => [privacyMode ? '••••' : formatCurrency(value), "Proventos"]}
               labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
               cursor={{ fill: "hsl(var(--primary) / 0.1)" }}
             />

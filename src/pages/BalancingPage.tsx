@@ -1,4 +1,5 @@
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { Blur } from "@/components/ui/blur";
 import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -642,19 +643,19 @@ export default function Balancing() {
             <div className="rounded-lg bg-muted/50 px-3 py-2">
               <span className="text-muted-foreground">Patrimônio atual: </span>
               <span className="font-semibold text-foreground tabular-nums">
-                {formatCurrency(portfolioValue)}
+                <Blur>{formatCurrency(portfolioValue)}</Blur>
               </span>
             </div>
             <div className="rounded-lg bg-primary/10 px-3 py-2">
               <span className="text-muted-foreground">Sugestão (compras): </span>
               <span className="font-semibold text-primary tabular-nums">
-                {formatCurrency(totalSuggested)}
+                <Blur>{formatCurrency(totalSuggested)}</Blur>
               </span>
             </div>
             <div className="rounded-lg bg-muted/50 px-3 py-2">
               <span className="text-muted-foreground">Caixa restante: </span>
               <span className="font-semibold text-foreground tabular-nums">
-                {formatCurrency(remainingCash)}
+                <Blur>{formatCurrency(remainingCash)}</Blur>
               </span>
             </div>
             <div className="rounded-lg bg-muted/50 px-3 py-2">
@@ -731,7 +732,7 @@ export default function Balancing() {
                         </div>
                       </td>
                       <td className="px-4 py-4 text-right font-medium text-foreground tabular-nums">
-                        {formatCurrency(asset.price)}
+                        <Blur>{formatCurrency(asset.price)}</Blur>
                       </td>
                       <td className="px-4 py-4 text-right font-medium text-foreground tabular-nums">
                         {asset.target.toFixed(1)}%
@@ -758,7 +759,7 @@ export default function Balancing() {
                         {asset.suggestedQuantity > 0 ? asset.suggestedQuantity : "-"}
                       </td>
                       <td className="px-4 py-4 text-right font-semibold text-primary tabular-nums">
-                        {asset.suggestedValue > 0 ? formatCurrency(asset.suggestedValue) : "-"}
+                        {asset.suggestedValue > 0 ? <Blur>{formatCurrency(asset.suggestedValue)}</Blur> : "-"}
                       </td>
                       <td className="px-6 py-4 text-center">
                         {asset.suggestedQuantity > 0 && asset.suggestedAction === "BUY" && (

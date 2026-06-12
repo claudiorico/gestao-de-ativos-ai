@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Blur } from "@/components/ui/blur";
 
 interface AssetData {
   ticker: string;
@@ -102,7 +103,7 @@ export function TopAssets({ assets, totalValue }: TopAssetsProps) {
                       </span>
                     ) : null}
                     <p className="min-w-0 truncate text-[11px] leading-none text-muted-foreground tabular-nums sm:text-xs">
-                      {body}
+                      <Blur>{body}</Blur>
                     </p>
                   </div>
                 </div>

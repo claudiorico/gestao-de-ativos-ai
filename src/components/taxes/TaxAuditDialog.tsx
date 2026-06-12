@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Blur } from "@/components/ui/blur";
 import {
   Dialog,
   DialogContent,
@@ -49,25 +50,25 @@ function CategorySummary({ cat }: { cat: MonthlyCategoryApuration }) {
         <div className="rounded-lg border border-border bg-muted/20 p-3">
           <p className="text-xs font-medium text-muted-foreground">Vendas (bruto)</p>
           <p className="mt-1 font-semibold tabular-nums text-foreground">
-            {cat.salesTotalGross > 0 ? formatCurrency(cat.salesTotalGross) : "—"}
+            {cat.salesTotalGross > 0 ? <Blur>{formatCurrency(cat.salesTotalGross)}</Blur> : "—"}
           </p>
         </div>
         <div className="rounded-lg border border-border bg-muted/20 p-3">
           <p className="text-xs font-medium text-muted-foreground">Resultado do mês</p>
           <p className="mt-1 font-semibold tabular-nums text-foreground">
-            {cat.netResult !== 0 ? formatCurrency(cat.netResult) : "—"}
+            {cat.netResult !== 0 ? <Blur>{formatCurrency(cat.netResult)}</Blur> : "—"}
           </p>
         </div>
         <div className="rounded-lg border border-border bg-muted/20 p-3">
           <p className="text-xs font-medium text-muted-foreground">Compensação usada</p>
           <p className="mt-1 font-semibold tabular-nums text-foreground">
-            {cat.lossUsed > 0 ? formatCurrency(cat.lossUsed) : "—"}
+            {cat.lossUsed > 0 ? <Blur>{formatCurrency(cat.lossUsed)}</Blur> : "—"}
           </p>
         </div>
         <div className="rounded-lg border border-border bg-muted/20 p-3">
           <p className="text-xs font-medium text-muted-foreground">Imposto (categoria)</p>
           <p className="mt-1 font-semibold tabular-nums text-foreground">
-            {cat.taxDue > 0 ? formatCurrency(cat.taxDue) : "—"}
+            {cat.taxDue > 0 ? <Blur>{formatCurrency(cat.taxDue)}</Blur> : "—"}
           </p>
         </div>
       </div>
@@ -81,13 +82,13 @@ function CategorySummary({ cat }: { cat: MonthlyCategoryApuration }) {
         {cat.exemptReason ? <span className="text-xs text-muted-foreground">{cat.exemptReason}</span> : null}
         {!cat.isExempt && cat.taxableBase > 0 ? (
           <span className="text-xs text-muted-foreground">
-            Base: <span className="font-medium text-foreground tabular-nums">{formatCurrency(cat.taxableBase)}</span>
+            Base: <span className="font-medium text-foreground tabular-nums"><Blur>{formatCurrency(cat.taxableBase)}</Blur></span>
           </span>
         ) : null}
         <span className="text-xs text-muted-foreground">
-          Prejuízo: <span className="font-medium text-foreground tabular-nums">{formatCurrency(cat.lossCarryIn)}</span>
+          Prejuízo: <span className="font-medium text-foreground tabular-nums"><Blur>{formatCurrency(cat.lossCarryIn)}</Blur></span>
           {" → "}
-          <span className="font-medium text-foreground tabular-nums">{formatCurrency(cat.lossCarryOut)}</span>
+          <span className="font-medium text-foreground tabular-nums"><Blur>{formatCurrency(cat.lossCarryOut)}</Blur></span>
         </span>
       </div>
 
@@ -171,19 +172,19 @@ function OperationRow({ op }: { op: GainOperationAudit }) {
       <td className="px-3 py-2 text-xs font-medium text-foreground">{op.ticker}</td>
       <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums">{op.quantity}</td>
       <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums">
-        {avgBefore > 0 ? formatCurrency(avgBefore) : "—"}
+        {avgBefore > 0 ? <Blur>{formatCurrency(avgBefore)}</Blur> : "—"}
       </td>
-      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums">{formatCurrency(op.proceedsGross)}</td>
-      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums">{op.fees ? formatCurrency(op.fees) : "—"}</td>
-      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums">{formatCurrency(op.proceedsNet)}</td>
-      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums">{formatCurrency(op.costBasis)}</td>
+      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums"><Blur>{formatCurrency(op.proceedsGross)}</Blur></td>
+      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums">{op.fees ? <Blur>{formatCurrency(op.fees)}</Blur> : "—"}</td>
+      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums"><Blur>{formatCurrency(op.proceedsNet)}</Blur></td>
+      <td className="px-3 py-2 text-right text-xs text-foreground tabular-nums"><Blur>{formatCurrency(op.costBasis)}</Blur></td>
       <td
         className={cn(
           "px-3 py-2 text-right text-xs font-semibold tabular-nums",
           op.gain > 0 ? "text-success" : op.gain < 0 ? "text-loss" : "text-muted-foreground",
         )}
       >
-        {op.gain !== 0 ? formatCurrency(op.gain) : "—"}
+        {op.gain !== 0 ? <Blur>{formatCurrency(op.gain)}</Blur> : "—"}
       </td>
       <td className="px-3 py-2 text-xs text-muted-foreground">
         {op.warnings.length ? op.warnings.join("; ") : "—"}
