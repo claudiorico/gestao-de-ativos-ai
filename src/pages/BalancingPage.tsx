@@ -209,6 +209,13 @@ export default function Balancing() {
     [rebalancedAssets]
   );
 
+  const groupedAssets = useMemo(() => {
+    const sells = rebalancedAssets.filter((a) => a.suggestedAction === "SELL" && a.suggestedQuantity > 0);
+    const buys  = rebalancedAssets.filter((a) => a.suggestedAction === "BUY"  && a.suggestedQuantity > 0);
+    const holds = rebalancedAssets.filter((a) => a.suggestedAction === "HOLD" || a.suggestedQuantity === 0);
+    return { sells, buys, holds };
+  }, [rebalancedAssets]);
+
   const getMode = (): RebalanceMode => {
     const amount = parseFloat(investmentAmount) || 0;
     return amount > 0 ? "WITH_CONTRIBUTION" : "REBALANCE_ONLY";
@@ -564,7 +571,7 @@ export default function Balancing() {
           transition={{ delay: 0.1 }}
           className="rounded-xl border border-border bg-card p-6 shadow-card"
         >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
               <label className="mb-2 block text-sm font-medium text-foreground">
                 Carteiras para balancear
@@ -648,15 +655,6 @@ export default function Balancing() {
                   placeholder="5000"
                 />
               </div>
-              {currentMode === "REBALANCE_ONLY" ? (
-                <p className="mt-1.5 text-xs text-primary font-medium">
-                  Modo rebalanceamento — sugere vendas dos sobrealocados e compras nos subalocados
-                </p>
-              ) : (
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Use 0 para rebalancear sem aporte (vende sobrealocados, compra subalocados)
-                </p>
-              )}
             </div>
 
             <div className="flex gap-2">
@@ -666,6 +664,16 @@ export default function Balancing() {
               </Button>
             </div>
           </div>
+
+          {currentMode === "REBALANCE_ONLY" ? (
+            <p className="mt-1 text-xs text-primary font-medium">
+              Modo rebalanceamento — sugere vendas dos sobrealocados e compras nos subalocados
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Use 0 para rebalancear sem aporte (vende sobrealocados, compra subalocados)
+            </p>
+          )}
 
           <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
             <div className="rounded-lg bg-muted/50 px-3 py-2">
@@ -747,7 +755,8 @@ export default function Balancing() {
                 </tr>
               </thead>
               <tbody>
-                {rebalancedAssets.map((asset, index) => {
+                {(() => {
+                  const renderRow = (asset: RebalancedAssetRow, index: number) => {
                   const isUnderAllocated = asset.diff > 0;
                   const isOverAllocated = asset.diff < 0;
 
@@ -756,7 +765,7 @@ export default function Balancing() {
                       key={asset.id}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.3 + index * 0.03 }}
+                      transition={{ delay: 0.05 + index * 0.03 }}
                       className="border-b border-border/50 transition-colors hover:bg-muted/20"
                     >
                       <td className="px-6 py-4">
@@ -857,7 +866,39 @@ export default function Balancing() {
                       </td>
                     </motion.tr>
                   );
-                })}
+                  };
+
+                  const SectionHeader = ({ label, color }: { label: string; color: string }) => (
+                    <tr>
+                      <td colSpan={8} className={`px-6 py-2 text-xs font-semibold uppercase tracking-wider ${color} bg-muted/40 border-b border-border/50`}>
+                        {label}
+                      </td>
+                    </tr>
+                  );
+
+                  return (
+                    <>
+                      {groupedAssets.sells.length > 0 && (
+                        <>
+                          <SectionHeader label={`Vender (${groupedAssets.sells.length})`} color="text-orange-600 dark:text-orange-400" />
+                          {groupedAssets.sells.map((a, i) => renderRow(a, i))}
+                        </>
+                      )}
+                      {groupedAssets.buys.length > 0 && (
+                        <>
+                          <SectionHeader label={`Comprar (${groupedAssets.buys.length})`} color="text-primary" />
+                          {groupedAssets.buys.map((a, i) => renderRow(a, groupedAssets.sells.length + i))}
+                        </>
+                      )}
+                      {groupedAssets.holds.length > 0 && (
+                        <>
+                          <SectionHeader label={`Manter (${groupedAssets.holds.length})`} color="text-muted-foreground" />
+                          {groupedAssets.holds.map((a, i) => renderRow(a, groupedAssets.sells.length + groupedAssets.buys.length + i))}
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </tbody>
             </table>
           </div>
