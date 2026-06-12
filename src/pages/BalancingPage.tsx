@@ -201,27 +201,46 @@ export default function Balancing() {
     [rebalancedAssets]
   );
 
+  const totalSoldSuggested = useMemo(
+    () =>
+      rebalancedAssets
+        .filter((a) => a.suggestedAction === "SELL")
+        .reduce((acc, a) => acc + a.suggestedValue, 0),
+    [rebalancedAssets]
+  );
+
   const getMode = (): RebalanceMode => {
     const amount = parseFloat(investmentAmount) || 0;
     return amount > 0 ? "WITH_CONTRIBUTION" : "REBALANCE_ONLY";
   };
+
+  const currentMode: RebalanceMode = (parseFloat(investmentAmount) || 0) > 0 ? "WITH_CONTRIBUTION" : "REBALANCE_ONLY";
 
   const runRebalancing = () => {
     try {
       const amount = parseFloat(investmentAmount) || 0;
       const mode = getMode();
 
-      // Regra: com aporte, só compra em carteiras que estão abaixo do alvo (análise por carteira primeiro).
+      // Regra: com aporte, só compra em carteiras abaixo do alvo (análise por carteira primeiro).
+      // Exceção: com uma única carteira o check é inútil (ela é sempre 100% de si mesma) —
+      // nesse caso, e também quando TODAS as carteiras estão no alvo, tratamos todas como
+      // elegíveis e deixamos o motor decidir pelo alvo dos ativos individuais.
       const PORTFOLIO_EPS = 0.25; // p.p.
+      const portfoliosUnder = portfoliosForBalancing
+        .map((p) => {
+          const any = allAssets.find((a) => a.portfolioId === p.id);
+          if (!any) return null;
+          const isUnder = any.portfolioCurrent + PORTFOLIO_EPS < any.portfolioTarget;
+          return isUnder ? p.id : null;
+        })
+        .filter(Boolean) as string[];
+
+      // Fallback: se nenhuma carteira ficou "abaixo do alvo" (carteira única ou todas no alvo),
+      // permite comprar em todas — o motor vai distribuir pelo alvo dos ativos.
       const portfolioUnderTarget = new Set(
-        portfoliosForBalancing
-          .map((p) => {
-            const any = allAssets.find((a) => a.portfolioId === p.id);
-            if (!any) return null;
-            const isUnder = any.portfolioCurrent + PORTFOLIO_EPS < any.portfolioTarget;
-            return isUnder ? p.id : null;
-          })
-          .filter(Boolean) as string[]
+        portfoliosUnder.length > 0
+          ? portfoliosUnder
+          : portfoliosForBalancing.map((p) => p.id)
       );
 
       const engineAssets = allAssets.map((a) => {
@@ -629,6 +648,15 @@ export default function Balancing() {
                   placeholder="5000"
                 />
               </div>
+              {currentMode === "REBALANCE_ONLY" ? (
+                <p className="mt-1.5 text-xs text-primary font-medium">
+                  Modo rebalanceamento — sugere vendas dos sobrealocados e compras nos subalocados
+                </p>
+              ) : (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Use 0 para rebalancear sem aporte (vende sobrealocados, compra subalocados)
+                </p>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -646,18 +674,30 @@ export default function Balancing() {
                 <Blur>{formatCurrency(portfolioValue)}</Blur>
               </span>
             </div>
-            <div className="rounded-lg bg-primary/10 px-3 py-2">
-              <span className="text-muted-foreground">Sugestão (compras): </span>
-              <span className="font-semibold text-primary tabular-nums">
-                <Blur>{formatCurrency(totalSuggested)}</Blur>
-              </span>
-            </div>
-            <div className="rounded-lg bg-muted/50 px-3 py-2">
-              <span className="text-muted-foreground">Caixa restante: </span>
-              <span className="font-semibold text-foreground tabular-nums">
-                <Blur>{formatCurrency(remainingCash)}</Blur>
-              </span>
-            </div>
+            {totalSuggested > 0 && (
+              <div className="rounded-lg bg-primary/10 px-3 py-2">
+                <span className="text-muted-foreground">Sugestão (compras): </span>
+                <span className="font-semibold text-primary tabular-nums">
+                  <Blur>{formatCurrency(totalSuggested)}</Blur>
+                </span>
+              </div>
+            )}
+            {totalSoldSuggested > 0 && (
+              <div className="rounded-lg bg-orange-500/10 px-3 py-2">
+                <span className="text-muted-foreground">Sugestão (vendas): </span>
+                <span className="font-semibold text-orange-600 dark:text-orange-400 tabular-nums">
+                  <Blur>{formatCurrency(totalSoldSuggested)}</Blur>
+                </span>
+              </div>
+            )}
+            {remainingCash > 0 && (
+              <div className="rounded-lg bg-muted/50 px-3 py-2">
+                <span className="text-muted-foreground">Caixa restante: </span>
+                <span className="font-semibold text-foreground tabular-nums">
+                  <Blur>{formatCurrency(remainingCash)}</Blur>
+                </span>
+              </div>
+            )}
             <div className="rounded-lg bg-muted/50 px-3 py-2">
               <span className="text-muted-foreground">Ativos: </span>
               <span className="font-semibold text-foreground">{allAssets.length}</span>
@@ -789,7 +829,30 @@ export default function Balancing() {
                           </Button>
                         )}
                         {asset.suggestedQuantity > 0 && asset.suggestedAction === "SELL" && (
-                          <span className="text-xs font-medium text-muted-foreground">Vender</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 border-orange-400/50 text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-950/30"
+                            onClick={() => {
+                              const priceBR = asset.price.toFixed(2).replace(".", ",");
+                              navigate("/transactions/new", {
+                                state: {
+                                  prefill: {
+                                    tab: "trade" as const,
+                                    type: "sell" as const,
+                                    portfolioId: asset.portfolioId,
+                                    assetId: asset.id,
+                                    shares: String(asset.suggestedQuantity),
+                                    price: priceBR,
+                                    notes: "Sugestão do balanceamento",
+                                  },
+                                },
+                              });
+                            }}
+                          >
+                            <TrendingDown className="h-3 w-3" />
+                            Vender
+                          </Button>
                         )}
                       </td>
                     </motion.tr>

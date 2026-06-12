@@ -181,3 +181,76 @@ describe("rebalancing-engine — REBALANCE_ONLY", () => {
     expect(finalTotal + result.remainingCash).toBeCloseTo(initialTotal, 0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regressão: bug "carteira única never buys" (portfolioUnderTarget vazio)
+// ---------------------------------------------------------------------------
+// O motor recebe os ativos com targetPercent já calculado pela página.
+// Quando a página corretamente passa os targets (após o fix), o motor deve
+// sugerir compras. Os testes abaixo simulam o que a página envia ao motor.
+// ---------------------------------------------------------------------------
+describe("rebalancing-engine — cenários regressão BalancingPage", () => {
+  it("carteira única zerada: compra segundo os alvos dos ativos", () => {
+    // Antes do fix: BalancingPage passava targetPercent=0 para todos → nenhuma compra.
+    // Após o fix: passa os alvos reais → motor deve comprar.
+    const result = rebalanceAssets({
+      assets: [
+        { id: "PETR4", targetPercent: 0.5, currentQuantity: 0, currentPrice: 40 },
+        { id: "VALE3", targetPercent: 0.3, currentQuantity: 0, currentPrice: 70 },
+        { id: "ITUB4", targetPercent: 0.2, currentQuantity: 0, currentPrice: 30 },
+      ],
+      availableCash: 1000,
+      mode: "WITH_CONTRIBUTION",
+    });
+    const bought = result.suggestions.filter((s) => s.action === "BUY");
+    expect(bought.length).toBeGreaterThan(0);
+    expect(result.remainingCash).toBeLessThan(1000);
+  });
+
+  it("carteira única já populada: aporte distribui pelo maior gap de ativo", () => {
+    // PETR4 tem 80% do valor mas alvo 50% → subalocado = VALE3/ITUB4
+    const result = rebalanceAssets({
+      assets: [
+        { id: "PETR4", targetPercent: 0.5, currentQuantity: 20, currentPrice: 40 }, // R$800 = 80%
+        { id: "VALE3", targetPercent: 0.3, currentQuantity: 1,  currentPrice: 70 }, // R$70
+        { id: "ITUB4", targetPercent: 0.2, currentQuantity: 2,  currentPrice: 30 }, // R$60
+      ],
+      availableCash: 500,
+      mode: "WITH_CONTRIBUTION",
+    });
+    // PETR4 está sobrealocado — não deve receber o aporte
+    const petr = result.suggestions.find((s) => s.assetId === "PETR4");
+    expect(petr?.action).not.toBe("BUY");
+    // Ao menos um dos subalocados deve ser comprado
+    const bought = result.suggestions.filter((s) => s.action === "BUY");
+    expect(bought.length).toBeGreaterThan(0);
+  });
+
+  it("todas carteiras no alvo exato: aporte ainda distribui pelos ativos subalocados", () => {
+    // Simula o fallback: todas carteiras no alvo → página passa targets normais ao motor.
+    // Motor deve comprar proporcionalmente ao gap de cada ativo.
+    const result = rebalanceAssets({
+      assets: [
+        { id: "A", targetPercent: 0.6, currentQuantity: 6, currentPrice: 10 }, // 60% ok
+        { id: "B", targetPercent: 0.4, currentQuantity: 2, currentPrice: 10 }, // 20% — subalocado
+      ],
+      availableCash: 200,
+      mode: "WITH_CONTRIBUTION",
+    });
+    const b = result.suggestions.find((s) => s.assetId === "B");
+    expect(b?.action).toBe("BUY");
+    expect(result.remainingCash).toBeLessThan(200);
+  });
+
+  it("caixa insuficiente para qualquer lote: retorna tudo HOLD", () => {
+    const result = rebalanceAssets({
+      assets: [
+        { id: "WEGE3", targetPercent: 1, currentQuantity: 0, currentPrice: 45 },
+      ],
+      availableCash: 10, // < R$45
+      mode: "WITH_CONTRIBUTION",
+    });
+    expect(result.suggestions[0]?.action).toBe("HOLD");
+    expect(result.remainingCash).toBe(10);
+  });
+});
