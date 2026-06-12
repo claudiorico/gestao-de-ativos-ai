@@ -40,13 +40,12 @@ function isFromOurApp(req: Request): boolean {
 }
 
 function getClientIp(req: Request): string {
+  // Use the rightmost entry added by the trusted proxy, not the leftmost (which callers can forge).
+  const cfIp = req.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp.trim();
   const xfwd = req.headers.get('x-forwarded-for');
-  if (xfwd) return xfwd.split(',')[0].trim();
-  return (
-    req.headers.get('cf-connecting-ip') ||
-    req.headers.get('x-real-ip') ||
-    'unknown'
-  );
+  if (xfwd) return xfwd.split(',').at(-1)!.trim();
+  return req.headers.get('x-real-ip') || 'unknown';
 }
 
 function allowRequest(ip: string, opts?: { capacity?: number; refillPerSec?: number }): boolean {
@@ -1191,18 +1190,21 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // API key (recommended): require only if configured as a secret
-  if (REQUIRED_API_KEY) {
-    // Allow calls coming from our trusted app origin without exposing the secret in the client.
-    // External callers still must provide x-api-key.
-    if (!isFromOurApp(req)) {
-      const provided = (req.headers.get('x-api-key') ?? '').trim();
-      if (provided !== REQUIRED_API_KEY) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+  // Auth: always require either a trusted app origin OR a valid API key.
+  // When EDGE_FUNCTIONS_API_KEY is not configured, isFromOurApp() alone guards the endpoint.
+  if (!isFromOurApp(req)) {
+    if (!REQUIRED_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const provided = (req.headers.get('x-api-key') ?? '').trim();
+    if (provided !== REQUIRED_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
   }
 

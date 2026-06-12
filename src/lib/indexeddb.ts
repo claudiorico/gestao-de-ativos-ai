@@ -384,7 +384,7 @@ export async function copyAllRawFromNamespace(sourceNamespace: string): Promise<
           const tx = db.transaction(s, 'readonly');
           const r = tx.objectStore(s).getAll();
           r.onsuccess = () => { result[s] = r.result ?? []; done(); };
-          r.onerror   = () => done();
+          r.onerror   = () => { db.close(); reject(r.error ?? new Error(`getAll failed on store ${s}`)); };
         }
       };
     }

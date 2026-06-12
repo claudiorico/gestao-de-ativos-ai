@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { verifyOAuthState } from "@/lib/google-drive";
 
 function parseOAuthHash() {
   const hash = window.location.hash.startsWith("#")
@@ -10,6 +11,7 @@ function parseOAuthHash() {
   return {
     access_token: params.get("access_token"),
     expires_in: params.get("expires_in"),
+    state: params.get("state"),
     error: params.get("error"),
     error_description: params.get("error_description"),
   };
@@ -28,6 +30,12 @@ export default function GoogleAuthCallback() {
   useEffect(() => {
     // Success
     if (result.access_token) {
+      // Verify CSRF state if present in URL (required when state was stored before redirect)
+      if (result.state !== null && !verifyOAuthState(result.state)) {
+        setStatus("error");
+        return;
+      }
+
       const expiresIn = Number.parseInt(result.expires_in || "", 10);
       const tokenData = {
         access_token: result.access_token,
@@ -36,7 +44,7 @@ export default function GoogleAuthCallback() {
       };
 
       // Always store as fallback
-      localStorage.setItem(PENDING_TOKEN_KEY, JSON.stringify(tokenData));
+      sessionStorage.setItem(PENDING_TOKEN_KEY, JSON.stringify(tokenData));
 
       // Try to notify opener (popup flow)
       try {
@@ -100,7 +108,7 @@ export default function GoogleAuthCallback() {
     }
 
     setStatus("unexpected");
-  }, [navigate, result.access_token, result.error, result.error_description, result.expires_in]);
+  }, [navigate, result.access_token, result.error, result.error_description, result.expires_in, result.state]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">

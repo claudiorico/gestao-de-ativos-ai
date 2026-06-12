@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -58,18 +59,18 @@ const fadeUp = {
 };
 
 export default function Landing() {
-  const { isAuthenticated } = useAuthUser();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuthUser();
   const { login } = useGoogleUser();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/home', { replace: true });
-    }
-  }, [isAuthenticated, navigate]);
+  if (!isAuthLoading && isAuthenticated) {
+    return <Navigate to="/home" replace />;
+  }
 
   const handleLogin = async () => {
+    setLoginError(null);
     const clientId = getAppGoogleClientId();
     if (!clientId) {
       navigate('/home');
@@ -86,8 +87,8 @@ export default function Landing() {
           navigate('/home');
         }
       }
-    } catch {
-      navigate('/home');
+    } catch (err) {
+      setLoginError('Falha ao conectar com o Google. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -164,6 +165,9 @@ export default function Landing() {
               <ChevronRight className="h-5 w-5" />
             </Button>
           </motion.div>
+          {loginError && (
+            <p className="mt-4 text-center text-sm text-destructive">{loginError}</p>
+          )}
 
           <motion.div
             initial="hidden"

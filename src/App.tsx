@@ -68,8 +68,8 @@ function AppContent() {
             <Route path="/taxes" element={<Taxes />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<NotFound />} />
           </Route>
+          <Route path="*" element={<NotFound />} />
         </Routes>
     </BrowserRouter>
   );

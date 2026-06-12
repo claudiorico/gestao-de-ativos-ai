@@ -35,7 +35,7 @@ function buildPixPayload(key: string): string {
   const ma = `26${String(inner.length).padStart(2, "0")}${inner}`;
   const nm = `59${String(name.length).padStart(2, "0")}${name}`;
   const ct = `60${String(city.length).padStart(2, "0")}${city}`;
-  const base = `000201${ma}52040000530398658${nm}${ct}62070503***6304`;
+  const base = `000201${ma}5204000053039865802BR${nm}${ct}62070503***6304`;
   return base + crc16(base);
 }
 

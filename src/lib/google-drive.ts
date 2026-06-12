@@ -28,7 +28,7 @@ export interface GoogleDriveConfig {
   userEmail: string | null;
 }
 
-// Store config in localStorage (tokens only, no financial data)
+// Store OAuth tokens in sessionStorage so they're not accessible after the session ends.
 const CONFIG_KEY = "investpro_gdrive_config";
 const PENDING_TOKEN_KEY = "investpro_gdrive_pending";
 
@@ -72,16 +72,16 @@ declare global {
 }
 
 export function getGoogleDriveConfig(): GoogleDriveConfig | null {
-  const stored = localStorage.getItem(CONFIG_KEY);
+  const stored = sessionStorage.getItem(CONFIG_KEY);
   return stored ? JSON.parse(stored) : null;
 }
 
 export function setGoogleDriveConfig(config: GoogleDriveConfig): void {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  sessionStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 }
 
 export function clearGoogleDriveConfig(): void {
-  localStorage.removeItem(CONFIG_KEY);
+  sessionStorage.removeItem(CONFIG_KEY);
 }
 
 /**
@@ -226,7 +226,7 @@ async function getValidAccessToken(
  * Check for pending OAuth token from redirect flow (legacy)
  */
 export async function checkPendingOAuthToken(clientId: string): Promise<boolean> {
-  const pending = localStorage.getItem(PENDING_TOKEN_KEY);
+  const pending = sessionStorage.getItem(PENDING_TOKEN_KEY);
   if (!pending) return false;
 
   try {
@@ -236,7 +236,7 @@ export async function checkPendingOAuthToken(clientId: string): Promise<boolean>
     const tokenAge = Date.now() - timestamp;
     if (tokenAge > 5 * 60 * 1000) {
       // 5 minutes max
-      localStorage.removeItem(PENDING_TOKEN_KEY);
+      sessionStorage.removeItem(PENDING_TOKEN_KEY);
       return false;
     }
 
@@ -252,11 +252,11 @@ export async function checkPendingOAuthToken(clientId: string): Promise<boolean>
       userEmail,
     };
     setGoogleDriveConfig(config);
-    localStorage.removeItem(PENDING_TOKEN_KEY);
+    sessionStorage.removeItem(PENDING_TOKEN_KEY);
 
     return true;
   } catch {
-    localStorage.removeItem(PENDING_TOKEN_KEY);
+    sessionStorage.removeItem(PENDING_TOKEN_KEY);
     return false;
   }
 }
@@ -265,15 +265,35 @@ export async function checkPendingOAuthToken(clientId: string): Promise<boolean>
  * Get pending OAuth client ID if stored
  */
 export function getPendingClientId(): string | null {
-  return localStorage.getItem("investpro_gdrive_pending_clientid");
+  return sessionStorage.getItem("investpro_gdrive_pending_clientid");
 }
 
 export function setPendingClientId(clientId: string): void {
-  localStorage.setItem("investpro_gdrive_pending_clientid", clientId);
+  sessionStorage.setItem("investpro_gdrive_pending_clientid", clientId);
 }
 
 export function clearPendingClientId(): void {
-  localStorage.removeItem("investpro_gdrive_pending_clientid");
+  sessionStorage.removeItem("investpro_gdrive_pending_clientid");
+}
+
+const CSRF_STATE_KEY = "investpro_oauth_state";
+
+export function generateOAuthState(): string {
+  const state = crypto.getRandomValues(new Uint8Array(16))
+    .reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
+  sessionStorage.setItem(CSRF_STATE_KEY, state);
+  return state;
+}
+
+export function verifyOAuthState(state: string | null): boolean {
+  const stored = sessionStorage.getItem(CSRF_STATE_KEY);
+  sessionStorage.removeItem(CSRF_STATE_KEY);
+  if (!stored) return false;
+  return stored === state;
+}
+
+export function clearOAuthState(): void {
+  sessionStorage.removeItem(CSRF_STATE_KEY);
 }
 
 /**

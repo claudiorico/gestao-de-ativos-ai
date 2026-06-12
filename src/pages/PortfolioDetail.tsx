@@ -17,6 +17,7 @@ import {
 import { usePortfolios } from "@/hooks/usePortfolios";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import type { Dividend } from "@/types/financial";
+import { Blur } from "@/components/ui/blur";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", {
@@ -182,41 +183,41 @@ export default function PortfolioDetailPage() {
               <div className="rounded-xl border border-border bg-card p-4 shadow-card">
                 <div className="text-xs text-muted-foreground">Valor atual</div>
                 <div className="mt-1 text-lg font-semibold text-foreground tabular-nums">
-                  {formatCurrency(summary.totalValue)}
+                  <Blur>{formatCurrency(summary.totalValue)}</Blur>
                 </div>
               </div>
 
               <div className="rounded-xl border border-border bg-card p-4 shadow-card">
                 <div className="text-xs text-muted-foreground">Custo (PM)</div>
                 <div className="mt-1 text-lg font-semibold text-foreground tabular-nums">
-                  {formatCurrency(summary.costBasis)}
+                  <Blur>{formatCurrency(summary.costBasis)}</Blur>
                 </div>
               </div>
 
               <div className="rounded-xl border border-border bg-card p-4 shadow-card">
                 <div className="text-xs text-muted-foreground">Proventos recebidos</div>
                 <div className="mt-1 text-lg font-semibold text-foreground tabular-nums">
-                  {formatCurrency(summary.totalDividends)}
+                  <Blur>{formatCurrency(summary.totalDividends)}</Blur>
                 </div>
               </div>
 
               <div className="rounded-xl border border-border bg-card p-4 shadow-card">
                 <div className="text-xs text-muted-foreground">Ganho total (c/ proventos)</div>
                 <div className="mt-1 text-lg font-semibold text-foreground tabular-nums">
-                  {formatCurrency(summary.totalGainWithDividends)}
+                  <Blur>{formatCurrency(summary.totalGainWithDividends)}</Blur>
                 </div>
                 <div className="text-xs text-muted-foreground tabular-nums">
-                  {formatPercent(summary.totalGainWithDividendsPercent)}
+                  <Blur>{formatPercent(summary.totalGainWithDividendsPercent)}</Blur>
                 </div>
               </div>
 
               <div className="rounded-xl border border-border bg-card p-4 shadow-card">
                 <div className="text-xs text-muted-foreground">Ganho do dia</div>
                 <div className="mt-1 text-lg font-semibold text-foreground tabular-nums">
-                  {formatCurrency(summary.dayGain)}
+                  <Blur>{formatCurrency(summary.dayGain)}</Blur>
                 </div>
                 <div className="text-xs text-muted-foreground tabular-nums">
-                  {formatPercent(summary.dayGainPercent)}
+                  <Blur>{formatPercent(summary.dayGainPercent)}</Blur>
                 </div>
               </div>
             </div>
@@ -297,30 +298,30 @@ export default function PortfolioDetailPage() {
                               {a.shares}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              {formatCurrency(a.averagePrice)}
+                              <Blur>{formatCurrency(a.averagePrice)}</Blur>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              {formatCurrency(a.currentPrice)}
+                              <Blur>{formatCurrency(a.currentPrice)}</Blur>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              {formatCurrency(a.currentValue)}
+                              <Blur>{formatCurrency(a.currentValue)}</Blur>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
                               {allocation.toFixed(1)}%
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              {formatCurrency(dividendsTotal)}
+                              <Blur>{formatCurrency(dividendsTotal)}</Blur>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              {formatCurrency(gainWithDividends)}
+                              <Blur>{formatCurrency(gainWithDividends)}</Blur>
                               <div className="text-xs text-muted-foreground tabular-nums">
-                                {formatPercent(gainWithDividendsPercent)}
+                                <Blur>{formatPercent(gainWithDividendsPercent)}</Blur>
                               </div>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              {formatCurrency(dayGain)}
+                              <Blur>{formatCurrency(dayGain)}</Blur>
                               <div className="text-xs text-muted-foreground tabular-nums">
-                                {formatPercent(dayGainPct)}
+                                <Blur>{formatPercent(dayGainPct)}</Blur>
                               </div>
                             </TableCell>
                             <TableCell className="text-right">

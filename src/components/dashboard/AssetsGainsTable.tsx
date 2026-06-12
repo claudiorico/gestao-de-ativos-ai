@@ -167,8 +167,6 @@ import { Blur } from "@/components/ui/blur";
 
    const formatPercent = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 
-   const B = Blur;
- 
    return (
      <motion.div
        initial={{ opacity: 0, y: 20 }}
@@ -323,13 +321,13 @@ import { Blur } from "@/components/ui/blur";
                          </div>
                        </TableCell>
                        <TableCell className="text-right text-sm hidden md:table-cell">
-                         <B>{asset.shares.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</B>
+                         <Blur>{asset.shares.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</Blur>
                        </TableCell>
                        <TableCell className="text-right text-sm hidden md:table-cell">
-                         <B>{formatCurrency(asset.currentPrice)}</B>
+                         <Blur>{formatCurrency(asset.currentPrice)}</Blur>
                        </TableCell>
                        <TableCell className="text-right font-medium">
-                         <B>{formatCurrency(asset.currentValue)}</B>
+                         <Blur>{formatCurrency(asset.currentValue)}</Blur>
                        </TableCell>
                        <TableCell
                          className={`text-right font-semibold ${
@@ -350,7 +348,7 @@ import { Blur } from "@/components/ui/blur";
                            asset.dayGain >= 0 ? "text-green-600" : "text-red-600"
                          }`}
                        >
-                         <B>{formatCurrency(asset.dayGain)}</B>
+                         <Blur>{formatCurrency(asset.dayGain)}</Blur>
                        </TableCell>
                        <TableCell
                          className={`text-right font-medium hidden lg:table-cell ${
@@ -358,12 +356,12 @@ import { Blur } from "@/components/ui/blur";
                          }`}
                        >
                          <div className="flex flex-col items-end">
-                           <B>{formatCurrency(asset.totalGain)}</B>
+                           <Blur>{formatCurrency(asset.totalGain)}</Blur>
                            <span className="text-xs">{formatPercent(asset.totalGainPercent)}</span>
                          </div>
                        </TableCell>
                        <TableCell className="text-right text-sm hidden xl:table-cell">
-                         <B>{asset.allocation.toFixed(1)}%</B>
+                         <Blur>{asset.allocation.toFixed(1)}%</Blur>
                        </TableCell>
                      </TableRow>
                    ))
@@ -388,7 +386,7 @@ import { Blur } from "@/components/ui/blur";
                        : "text-red-600"
                    }`}
                  >
-                   <B>{formatCurrency(sortedAssets.reduce((sum, a) => sum + a.dayGain, 0))}</B>
+                   <Blur>{formatCurrency(sortedAssets.reduce((sum, a) => sum + a.dayGain, 0))}</Blur>
                  </span>
                </div>
              </div>

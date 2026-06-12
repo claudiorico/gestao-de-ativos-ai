@@ -67,7 +67,7 @@ async function fetchGoogleProfile(accessToken: string): Promise<GoogleUserProfil
  */
 function getStoredProfile(): GoogleUserProfile | null {
   try {
-    const stored = localStorage.getItem(USER_PROFILE_KEY);
+    const stored = sessionStorage.getItem(USER_PROFILE_KEY);
     return stored ? JSON.parse(stored) : null;
   } catch {
     return null;
@@ -75,17 +75,17 @@ function getStoredProfile(): GoogleUserProfile | null {
 }
 
 /**
- * Store user profile in localStorage
+ * Store user profile in sessionStorage
  */
 function storeProfile(profile: GoogleUserProfile): void {
-  localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(profile));
+  sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(profile));
 }
 
 /**
  * Clear stored user profile
  */
 function clearStoredProfile(): void {
-  localStorage.removeItem(USER_PROFILE_KEY);
+  sessionStorage.removeItem(USER_PROFILE_KEY);
 }
 
 /**

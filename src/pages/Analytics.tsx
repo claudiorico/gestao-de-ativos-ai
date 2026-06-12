@@ -16,6 +16,7 @@ import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import type { Asset, Dividend, Transaction } from "@/types/financial";
 import { usePrices } from "@/hooks/usePrices";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
+import { Blur } from "@/components/ui/blur";
 
 type HistoryPoint = { t: number; price: number };
 type TickerHistory = { ticker: string; points: HistoryPoint[] };
@@ -345,7 +346,7 @@ export default function Analytics() {
                   <Wallet className="h-4 w-4" /> Valor atual do portfólio
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {isLoading || isPricesLoading ? "…" : formatCurrency(summary.currentValue)}
+                  {isLoading || isPricesLoading ? "…" : <Blur>{formatCurrency(summary.currentValue)}</Blur>}
                 </div>
               </div>
 
@@ -354,7 +355,7 @@ export default function Analytics() {
                   <Coins className="h-4 w-4" /> Custo total investido
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {isLoading ? "…" : formatCurrency(summary.costBasis)}
+                  {isLoading ? "…" : <Blur>{formatCurrency(summary.costBasis)}</Blur>}
                 </div>
               </div>
 
@@ -368,7 +369,7 @@ export default function Analytics() {
                     (summary.result >= 0 ? "text-success" : "text-destructive")
                   }
                 >
-                  {isLoading || isPricesLoading ? "…" : formatCurrency(summary.result)}
+                  {isLoading || isPricesLoading ? "…" : <Blur>{formatCurrency(summary.result)}</Blur>}
                 </div>
                 {!isLoading && !isPricesLoading && summary.costBasis > 0 && (
                   <div className="text-xs text-muted-foreground tabular-nums">
@@ -383,7 +384,7 @@ export default function Analytics() {
                   <Percent className="h-4 w-4" /> Proventos recebidos
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {isLoading ? "…" : formatCurrency(summary.totalDividends)}
+                  {isLoading ? "…" : <Blur>{formatCurrency(summary.totalDividends)}</Blur>}
                 </div>
               </div>
             </motion.div>

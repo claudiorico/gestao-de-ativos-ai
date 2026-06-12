@@ -19,6 +19,7 @@ import { useAssets } from "@/hooks/useAssets";
 import { usePortfolios } from "@/hooks/usePortfolios";
 import { useToast } from "@/hooks/use-toast";
 import type { Dividend } from "@/types/financial";
+import { Blur } from "@/components/ui/blur";
 
 const MONTHS_PT = [
   "Jan",
@@ -187,7 +188,7 @@ export default function Dividends() {
               <span className="text-sm font-medium text-muted-foreground">Total ({currentYear})</span>
             </div>
             <p className="break-words text-2xl font-bold text-foreground tabular-nums sm:text-3xl">
-              {formatCurrency(totalAnnual)}
+              <Blur>{formatCurrency(totalAnnual)}</Blur>
             </p>
             <p className="mt-2 text-sm text-muted-foreground">Dividendos + JCP + rendimentos</p>
           </div>
@@ -200,7 +201,7 @@ export default function Dividends() {
               <span className="text-sm font-medium text-muted-foreground">Média mensal</span>
             </div>
             <p className="break-words text-2xl font-bold text-foreground tabular-nums sm:text-3xl">
-              {formatCurrency(avgMonthly)}
+              <Blur>{formatCurrency(avgMonthly)}</Blur>
             </p>
             <p className="mt-2 text-sm text-muted-foreground">No ano corrente</p>
           </div>
@@ -356,12 +357,12 @@ export default function Dividends() {
                           ) : null}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {dividend.shares} cotas × {formatCurrency(dividend.value)}
+                          {dividend.shares} cotas × <Blur>{formatCurrency(dividend.value)}</Blur>
                         </p>
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="font-semibold text-success tabular-nums">+{formatCurrency(dividend.total)}</p>
+                      <p className="font-semibold text-success tabular-nums">+<Blur>{formatCurrency(dividend.total)}</Blur></p>
                       <p className="text-xs text-muted-foreground">{formatDate(dividend.date)}</p>
                     </div>
                   </motion.div>

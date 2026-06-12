@@ -39,6 +39,8 @@ import {
 import { TaxAuditDialog } from "@/components/taxes/TaxAuditDialog";
 import * as XLSX from "xlsx";
 
+import { Blur } from "@/components/ui/blur";
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -350,7 +352,7 @@ function DarfInstructionsDialog({
                 <span className="text-muted-foreground">Período de apuração</span>
                 <span className="font-mono text-foreground">{mm}/{yy}</span>
                 <span className="text-muted-foreground">Valor principal</span>
-                <span className="font-mono font-bold text-warning">{formatCurrency(cat.tax)}</span>
+                <span className="font-mono font-bold text-warning"><Blur>{formatCurrency(cat.tax)}</Blur></span>
                 <span className="text-muted-foreground">Vencimento</span>
                 <span className="text-foreground text-xs">último dia útil do mês seguinte</span>
               </div>
@@ -657,7 +659,7 @@ export default function Taxes() {
             </div>
             <p className="text-sm text-muted-foreground mb-1">Ganho de Capital ({selectedYear})</p>
             <p className="text-2xl font-bold text-foreground tabular-nums">
-              {isLoading ? "—" : formatCurrency(summary.totalGain)}
+              {isLoading ? "—" : <Blur>{formatCurrency(summary.totalGain)}</Blur>}
             </p>
           </div>
 
@@ -669,7 +671,7 @@ export default function Taxes() {
             </div>
             <p className="text-sm text-muted-foreground mb-1">Imposto Devido (DARF)</p>
             <p className="text-2xl font-bold text-warning tabular-nums">
-              {isLoading ? "—" : formatCurrency(summary.taxDue)}
+              {isLoading ? "—" : <Blur>{formatCurrency(summary.taxDue)}</Blur>}
             </p>
           </div>
 
@@ -681,7 +683,7 @@ export default function Taxes() {
             </div>
             <p className="text-sm text-muted-foreground mb-1">Rendimentos Isentos</p>
             <p className="text-2xl font-bold text-foreground tabular-nums">
-              {isLoading ? "—" : formatCurrency(summary.exemptDividends)}
+              {isLoading ? "—" : <Blur>{formatCurrency(summary.exemptDividends)}</Blur>}
             </p>
           </div>
 
@@ -693,7 +695,7 @@ export default function Taxes() {
             </div>
             <p className="text-sm text-muted-foreground mb-1">JCP (Tributável)</p>
             <p className="text-2xl font-bold text-foreground tabular-nums">
-              {isLoading ? "—" : formatCurrency(summary.taxableDividends)}
+              {isLoading ? "—" : <Blur>{formatCurrency(summary.taxableDividends)}</Blur>}
             </p>
           </div>
         </motion.div>
@@ -764,10 +766,10 @@ export default function Taxes() {
                     >
                       <td className="px-6 py-4 font-medium text-foreground">{darf.label}</td>
                       <td className="px-4 py-4 text-right font-medium text-foreground tabular-nums">
-                        {darf.gain !== 0 ? formatCurrency(darf.gain) : "-"}
+                        {darf.gain !== 0 ? <Blur>{formatCurrency(darf.gain)}</Blur> : "-"}
                       </td>
                       <td className="px-4 py-4 text-right font-medium text-foreground tabular-nums">
-                        {darf.tax > 0 ? formatCurrency(darf.tax) : "-"}
+                        {darf.tax > 0 ? <Blur>{formatCurrency(darf.tax)}</Blur> : "-"}
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div
