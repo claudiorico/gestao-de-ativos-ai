@@ -211,17 +211,26 @@ export default function Balancing() {
       const amount = parseFloat(investmentAmount) || 0;
       const mode = getMode();
 
-      // Regra: com aporte, só compra em carteiras que estão abaixo do alvo (análise por carteira primeiro).
+      // Regra: com aporte, só compra em carteiras abaixo do alvo (análise por carteira primeiro).
+      // Exceção: com uma única carteira o check é inútil (ela é sempre 100% de si mesma) —
+      // nesse caso, e também quando TODAS as carteiras estão no alvo, tratamos todas como
+      // elegíveis e deixamos o motor decidir pelo alvo dos ativos individuais.
       const PORTFOLIO_EPS = 0.25; // p.p.
+      const portfoliosUnder = portfoliosForBalancing
+        .map((p) => {
+          const any = allAssets.find((a) => a.portfolioId === p.id);
+          if (!any) return null;
+          const isUnder = any.portfolioCurrent + PORTFOLIO_EPS < any.portfolioTarget;
+          return isUnder ? p.id : null;
+        })
+        .filter(Boolean) as string[];
+
+      // Fallback: se nenhuma carteira ficou "abaixo do alvo" (carteira única ou todas no alvo),
+      // permite comprar em todas — o motor vai distribuir pelo alvo dos ativos.
       const portfolioUnderTarget = new Set(
-        portfoliosForBalancing
-          .map((p) => {
-            const any = allAssets.find((a) => a.portfolioId === p.id);
-            if (!any) return null;
-            const isUnder = any.portfolioCurrent + PORTFOLIO_EPS < any.portfolioTarget;
-            return isUnder ? p.id : null;
-          })
-          .filter(Boolean) as string[]
+        portfoliosUnder.length > 0
+          ? portfoliosUnder
+          : portfoliosForBalancing.map((p) => p.id)
       );
 
       const engineAssets = allAssets.map((a) => {
