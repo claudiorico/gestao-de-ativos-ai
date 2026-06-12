@@ -34,7 +34,7 @@ export default function PortfolioDetailPage() {
   const { portfolioId } = useParams<{ portfolioId: string }>();
   const [searchParams] = useSearchParams();
   const highlightAssetId = searchParams.get("asset");
-  const { portfoliosWithAssets, isLoading } = usePortfolios();
+  const { portfoliosWithAssets, isLoading, refresh } = usePortfolios();
   const { getDividends, saveAsset } = useSecureStorage();
 
   const [dividends, setDividends] = useState<Dividend[]>([]);
