@@ -47,7 +47,8 @@ export function usePortfolios() {
 
   const derivedHoldingsByAssetId = useMemo(() => {
     // Calcula quantidade e preço médio a partir das transações.
-    // Útil quando o ativo foi criado via importação e ficou com shares/averagePrice = 0.
+    // Sempre que o ativo tiver transações, elas são a fonte da verdade (mesmo que
+    // o ativo tenha sido criado com shares/averagePrice manuais).
     const map = new Map<string, { shares: number; averagePrice: number }>();
     const byAsset = new Map<string, Transaction[]>();
 
@@ -79,9 +80,10 @@ export function usePortfolios() {
         }
       }
 
-      if (shares > 0 && cost > 0) {
-        map.set(assetId, { shares, averagePrice: cost / shares });
-      }
+      // shares pode chegar a 0 (ativo zerado por vendas) — nesse caso o preço médio
+      // não é mais significativo, mas a quantidade 0 ainda precisa prevalecer sobre
+      // o valor estático do ativo.
+      map.set(assetId, { shares, averagePrice: shares > 0 ? cost / shares : 0 });
     }
 
     return map;
@@ -141,13 +143,12 @@ export function usePortfolios() {
     // Enrich assets with current prices
     const enrichedAssets: AssetWithPrice[] = allAssets.map((asset) => {
       const derived = derivedHoldingsByAssetId.get(asset.id);
-      const hasManualHoldings = (asset.shares ?? 0) > 0 && (asset.averagePrice ?? 0) > 0;
 
-      // Se o ativo foi criado/importado com 0 e existem transações, usamos o derivado.
-      const effectiveShares = hasManualHoldings ? asset.shares : (derived?.shares ?? asset.shares);
-      const effectiveAveragePrice = hasManualHoldings
-        ? asset.averagePrice
-        : (derived?.averagePrice ?? asset.averagePrice);
+      // Se existem transações para o ativo, elas são a fonte da verdade (mesmo que o
+      // ativo tenha sido criado com shares/averagePrice manuais). Sem transações,
+      // usamos a posição estática informada na criação do ativo.
+      const effectiveShares = derived ? derived.shares : asset.shares;
+      const effectiveAveragePrice = derived ? derived.averagePrice : asset.averagePrice;
 
       const quoteKey = String(asset.ticker ?? '')
         .trim()
