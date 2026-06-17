@@ -17,6 +17,7 @@ import {
   Gift,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
 } from "lucide-react";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -28,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Asset, CashMovement, Dividend, Portfolio, Transaction } from "@/types/financial";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -241,9 +243,10 @@ export default function Transactions() {
   const currentYear = new Date().getFullYear();
 
   const [assetFilter, setAssetFilter] = useState<string>(() => searchParams.get("asset") ?? "all");
-  const [categoryFilter, setCategoryFilter] = useState<MovementCategory | "all">(() => {
+  const [categoryFilters, setCategoryFilters] = useState<MovementCategory[]>(() => {
     const fromUrl = searchParams.get("category");
-    return fromUrl && isMovementCategory(fromUrl) ? fromUrl : "all";
+    if (!fromUrl) return [];
+    return fromUrl.split(",").filter(isMovementCategory) as MovementCategory[];
   });
   const [yearFilter, setYearFilter] = useState<string>(() => {
     const urlYear = searchParams.get("year");
@@ -255,13 +258,16 @@ export default function Transactions() {
   // Sync filters <-> URL
   useEffect(() => {
     const nextAsset = searchParams.get("asset") ?? "all";
-    const nextCat = searchParams.get("category");
+    const nextCatRaw = searchParams.get("category");
+    const nextCat = nextCatRaw
+      ? (nextCatRaw.split(",").filter(isMovementCategory) as MovementCategory[])
+      : [];
     const urlYear = searchParams.get("year");
     // When arriving with a specific asset but no explicit year (e.g. from portfolio
     // detail), default to "all" years so the full history is visible.
     const nextYear = urlYear ?? (nextAsset !== "all" ? "all" : String(currentYear));
     if (nextAsset !== assetFilter) setAssetFilter(nextAsset);
-    if (nextCat && isMovementCategory(nextCat) && nextCat !== categoryFilter) setCategoryFilter(nextCat);
+    if (nextCat.join(",") !== categoryFilters.join(",")) setCategoryFilters(nextCat);
     if (nextYear !== yearFilter) setYearFilter(nextYear);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -269,35 +275,35 @@ export default function Transactions() {
   useEffect(() => {
     const next = new URLSearchParams();
     if (assetFilter !== "all") next.set("asset", assetFilter);
-    if (categoryFilter !== "all") next.set("category", categoryFilter);
+    if (categoryFilters.length > 0) next.set("category", categoryFilters.join(","));
     if (yearFilter !== "all") next.set("year", yearFilter);
     setSearchParams(next, { replace: true });
-  }, [assetFilter, categoryFilter, yearFilter, setSearchParams]);
+  }, [assetFilter, categoryFilters, yearFilter, setSearchParams]);
 
   // Reset to page 1 when any filter changes
-  const prevFiltersRef = useRef({ assetFilter, categoryFilter, yearFilter });
+  const prevFiltersRef = useRef({ assetFilter, categoryFilters, yearFilter });
   useEffect(() => {
     const prev = prevFiltersRef.current;
     if (
       prev.assetFilter !== assetFilter ||
-      prev.categoryFilter !== categoryFilter ||
+      prev.categoryFilters.join(",") !== categoryFilters.join(",") ||
       prev.yearFilter !== yearFilter
     ) {
       setPage(1);
-      prevFiltersRef.current = { assetFilter, categoryFilter, yearFilter };
+      prevFiltersRef.current = { assetFilter, categoryFilters, yearFilter };
     }
-  }, [assetFilter, categoryFilter, yearFilter]);
+  }, [assetFilter, categoryFilters, yearFilter]);
 
   const filteredMovements = useMemo(() => {
     return movements.filter((row) => {
       if (assetFilter !== "all" && row.assetId !== assetFilter) return false;
-      if (categoryFilter !== "all" && row.category !== categoryFilter) return false;
+      if (categoryFilters.length > 0 && !categoryFilters.includes(row.category)) return false;
       if (yearFilter !== "all") {
         if (new Date(row.date).getFullYear() !== Number(yearFilter)) return false;
       }
       return true;
     });
-  }, [movements, assetFilter, categoryFilter, yearFilter]);
+  }, [movements, assetFilter, categoryFilters, yearFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredMovements.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -358,7 +364,7 @@ export default function Transactions() {
   }, [filteredMovements, monthStart, yearFilter, currentYear]);
 
   const isCurrentYear = yearFilter === String(currentYear);
-  const hasActiveFilter = assetFilter !== "all" || categoryFilter !== "all";
+  const hasActiveFilter = assetFilter !== "all" || categoryFilters.length > 0;
   const totalsLabel =
     hasActiveFilter ? "(filtro)" : isCurrentYear ? "(mês)" : `(${yearFilter})`;
 
@@ -440,35 +446,76 @@ export default function Transactions() {
                 </SelectContent>
               </Select>
 
-              {/* Category filter */}
-              <Select
-                value={categoryFilter}
-                onValueChange={(v) => setCategoryFilter(v as MovementCategory | "all")}
-              >
-                <SelectTrigger className="w-full sm:w-[190px]">
-                  <SelectValue placeholder="Todas as categorias" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as categorias</SelectItem>
-                  {categoryOrder.map((key) => (
-                    <SelectItem key={key} value={key}>
-                      {categoryConfig[key].label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Category filter (multi-select) */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full sm:w-[190px] justify-between font-normal"
+                  >
+                    <span className="truncate">
+                      {categoryFilters.length === 0
+                        ? "Todas as categorias"
+                        : categoryFilters.length === 1
+                          ? categoryConfig[categoryFilters[0]].label
+                          : `${categoryFilters.length} categorias`}
+                    </span>
+                    <ChevronsUpDown className="h-4 w-4 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width]">
+                  <DropdownMenuCheckboxItem
+                    checked={categoryFilters.length === 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) setCategoryFilters([]);
+                    }}
+                  >
+                    Todas as categorias
+                  </DropdownMenuCheckboxItem>
+
+                  <DropdownMenuSeparator />
+
+                  {categoryOrder.map((key) => {
+                    const isAll = categoryFilters.length === 0;
+                    const checked = !isAll && categoryFilters.includes(key);
+
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={key}
+                        checked={checked}
+                        onCheckedChange={(nextChecked) => {
+                          if (isAll) {
+                            if (nextChecked) setCategoryFilters([key]);
+                            return;
+                          }
+
+                          setCategoryFilters((prev) => {
+                            const set = new Set(prev);
+                            if (nextChecked) set.add(key);
+                            else set.delete(key);
+                            return Array.from(set);
+                          });
+                        }}
+                      >
+                        {categoryConfig[key].label}
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   setAssetFilter("all");
-                  setCategoryFilter("all");
+                  setCategoryFilters([]);
                   setYearFilter(String(currentYear));
                 }}
                 disabled={
                   assetFilter === "all" &&
-                  categoryFilter === "all" &&
+                  categoryFilters.length === 0 &&
                   yearFilter === String(currentYear)
                 }
               >

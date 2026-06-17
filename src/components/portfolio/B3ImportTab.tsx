@@ -68,6 +68,26 @@ interface FundoRow {
   selected: boolean;
 }
 
+// B3 às vezes reporta a mesma ordem em execuções parciais: múltiplas linhas do mesmo
+// ativo, mesma operação (compra/venda) e mesmo dia. Sem consolidar, duas execuções com
+// quantidade+valor idênticos colidem na dedupKey e a segunda é descartada como "duplicata"
+// — perdendo volume real. Consolidamos somando quantidade/valor antes do dedup-check.
+function consolidateNegociacaoRows(rows: NegociacaoRow[]): NegociacaoRow[] {
+  const groups = new Map<string, NegociacaoRow>();
+  for (const row of rows) {
+    const key = `${row.ticker}|${row.type}|${row.date}`;
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { ...row });
+      continue;
+    }
+    existing.quantity += row.quantity;
+    existing.value += row.value;
+    existing.price = existing.quantity > 0 ? existing.value / existing.quantity : existing.price;
+  }
+  return Array.from(groups.values());
+}
+
 function parseDateBR(dateStr: string): number {
   // DD/MM/YYYY -> timestamp
   const [d, m, y] = dateStr.split("/").map(Number);
@@ -631,7 +651,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
   };
 
   const importNegociacoes = async () => {
-    const selected = negociacaoRows.filter((r) => r.selected);
+    const selectedRaw = negociacaoRows.filter((r) => r.selected);
+    const selected = consolidateNegociacaoRows(selectedRaw);
+    const consolidatedCount = selectedRaw.length - selected.length;
     const localAssetByTicker = await buildAssetMap();
     const newAssets: Asset[] = [];
     const newTransactions: Transaction[] = [];
@@ -696,8 +718,10 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     await saveTransactionsBulk(newTransactions);
 
     return `${newAssets.length} ativos novos, ${newTransactions.length} transações${
-      skippedDuplicates ? `, ${skippedDuplicates} duplicadas ignoradas` : ""
-    }${invalidTickers ? `, ${invalidTickers} inválidas` : ""}.`;
+      consolidatedCount ? `, ${consolidatedCount} linha(s) consolidada(s) (execuções parciais)` : ""
+    }${skippedDuplicates ? `, ${skippedDuplicates} duplicadas ignoradas` : ""}${
+      invalidTickers ? `, ${invalidTickers} inválidas` : ""
+    }.`;
   };
 
   const importMovimentacoes = async () => {
