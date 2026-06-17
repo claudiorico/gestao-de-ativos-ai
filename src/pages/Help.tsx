@@ -1,4 +1,5 @@
 import { ArrowLeft, BookOpen, Shield, Upload, Cloud, TrendingUp, RefreshCw, Fingerprint, HelpCircle, ChevronRight } from "lucide-react";
+import { Helmet } from "react-helmet-async";
 import { Button } from "@/components/ui/button";
 import { useNavigate, Link } from "react-router-dom";
 import {
@@ -40,6 +41,14 @@ export default function Help() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <Helmet>
+        <title>Ajuda e Tutoriais — Cofre Investimentos</title>
+        <meta
+          name="description"
+          content="Como usar o Cofre Investimentos: importação da B3, balanceamento de carteira, backup no Google Drive, biometria e mais. Guia completo para começar."
+        />
+        <link rel="canonical" href="https://cofreinvestimentos.com.br/ajuda" />
+      </Helmet>
       <div className="max-w-2xl mx-auto px-4 py-12 space-y-10">
 
         {/* Header */}

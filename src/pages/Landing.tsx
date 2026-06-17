@@ -386,6 +386,9 @@ export default function Landing() {
             <a href="/privacy" className="hover:text-foreground transition-colors">
               Privacidade
             </a>
+            <a href="/ajuda" className="hover:text-foreground transition-colors">
+              Ajuda
+            </a>
           </div>
         </div>
       </footer>

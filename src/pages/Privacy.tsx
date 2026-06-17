@@ -1,4 +1,5 @@
 import { Shield, ArrowLeft } from "lucide-react";
+import { Helmet } from "react-helmet-async";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 
@@ -7,6 +8,14 @@ export default function Privacy() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <Helmet>
+        <title>Política de Privacidade — Cofre Investimentos</title>
+        <meta
+          name="description"
+          content="Como o Cofre Investimentos protege seus dados financeiros: criptografia local no dispositivo, zero-knowledge, nenhum servidor acessa seu portfólio ou transações."
+        />
+        <link rel="canonical" href="https://cofreinvestimentos.com.br/privacy" />
+      </Helmet>
       <div className="max-w-2xl mx-auto px-4 py-12 space-y-8">
         {/* Header */}
         <div className="space-y-4">
