@@ -21,6 +21,7 @@ b3-import/
 !README.md
 
 # Editor directories and files
+.claude/
 .vscode/*
 !.vscode/extensions.json
 .idea
