@@ -1,7 +1,26 @@
-# InvestPro Vault
+# Cofre Investimentos
 
-Gestão de investimentos com cofre criptografado local e backup no Google Drive.
-Acompanhe portfólio, balanceamento, movimentações, proventos, imposto de renda e analytics.
+**Seus investimentos. Só seus.**
+
+App gratuito e open source de gestão de investimentos com **criptografia local** —
+seus dados financeiros (portfólio, transações, proventos, IR) nunca saem do seu
+dispositivo. Nenhum servidor nosso armazena ou acessa suas informações.
+
+🔗 **App:** [cofreinvestimentos.com.br](https://cofreinvestimentos.com.br)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
+
+## Funcionalidades
+
+- 📊 **Portfólio** — multi-carteira, cotas, preço médio, P&L e ganho do dia consolidados
+- ⚖️ **Balanceamento** — sugestões automáticas de compra por aporte ou rebalanceamento sem venda
+- 💰 **Proventos** — dividendos, JCP e rendimentos com histórico e Yield on Cost
+- 🧾 **Imposto de Renda** — DARF automático, isenção de R$20k, GCAP e swing trade calculados
+- ☁️ **Backup no Google Drive** — o arquivo salvo no Drive é criptografado; nem a Google consegue abrir
+- 📥 **Importação B3** — CSV de Negociação, Movimentação e Tesouro Direto
+- 🔐 **Zero-knowledge** — criptografia AES-256 local (Web Crypto API), com unlock opcional via Windows Hello/biometria (WebAuthn PRF)
 
 ## Tecnologias
 
@@ -17,7 +36,7 @@ Pré-requisito: Node.js & npm instalados ([instalar com nvm](https://github.com/
 
 ```sh
 # 1. Clonar o repositório
-git clone <YOUR_GIT_URL>
+git clone https://github.com/claudiorico/gestao-de-ativos-ai.git
 
 # 2. Entrar na pasta do projeto
 cd gestao-de-ativos-ai
@@ -79,3 +98,12 @@ supabase functions deploy get-quotes get-price-history
 # opcional: liberar a origem do app por host
 supabase secrets set ALLOWED_ORIGIN_HOSTS=seu-app.vercel.app
 ```
+
+## Contribuindo
+
+PRs e issues são bem-vindos! Se encontrar um bug ou tiver uma sugestão, abra uma
+[issue](https://github.com/claudiorico/gestao-de-ativos-ai/issues).
+
+## Licença
+
+[MIT](LICENSE)
