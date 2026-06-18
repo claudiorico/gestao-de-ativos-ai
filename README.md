@@ -10,6 +10,8 @@ dispositivo. Nenhum servidor nosso armazena ou acessa suas informações.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![Cofre Investimentos](docs/screenshot-landing.png)
+
 ---
 
 ## Funcionalidades
