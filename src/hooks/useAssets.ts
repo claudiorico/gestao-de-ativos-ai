@@ -13,7 +13,6 @@ export function useAssets(portfolioId?: string) {
     getAssets,
     saveAsset,
     deleteAsset,
-    notifyDataChange,
   } = useSecureStorage();
 
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -55,11 +54,10 @@ export function useAssets(portfolioId?: string) {
       };
 
       await saveAsset(newAsset);
-      notifyDataChange();
       await loadAssets();
       return newAsset;
     },
-    [saveAsset, notifyDataChange, loadAssets]
+    [saveAsset, loadAssets]
   );
 
   // Update existing asset
@@ -82,21 +80,19 @@ export function useAssets(portfolioId?: string) {
       };
 
       await saveAsset(updated);
-      notifyDataChange();
       await loadAssets();
       return updated;
     },
-    [assets, saveAsset, notifyDataChange, loadAssets]
+    [assets, saveAsset, loadAssets]
   );
 
   // Remove asset
   const removeAsset = useCallback(
     async (id: string) => {
       await deleteAsset(id);
-      notifyDataChange();
       await loadAssets();
     },
-    [deleteAsset, notifyDataChange, loadAssets]
+    [deleteAsset, loadAssets]
   );
 
   // Load on mount and when vault unlocks

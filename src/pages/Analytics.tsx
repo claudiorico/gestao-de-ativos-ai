@@ -346,7 +346,7 @@ export default function Analytics() {
                   <Wallet className="h-4 w-4" /> Valor atual do portfólio
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {isLoading || isPricesLoading ? "…" : <Blur>{formatCurrency(summary.currentValue)}</Blur>}
+                  {isLoading ? "…" : <Blur>{formatCurrency(summary.currentValue)}</Blur>}
                 </div>
               </div>
 
@@ -369,9 +369,9 @@ export default function Analytics() {
                     (summary.result >= 0 ? "text-success" : "text-destructive")
                   }
                 >
-                  {isLoading || isPricesLoading ? "…" : <Blur>{formatCurrency(summary.result)}</Blur>}
+                  {isLoading ? "…" : <Blur>{formatCurrency(summary.result)}</Blur>}
                 </div>
-                {!isLoading && !isPricesLoading && summary.costBasis > 0 && (
+                {!isLoading && summary.costBasis > 0 && (
                   <div className="text-xs text-muted-foreground tabular-nums">
                     {summary.returnPct >= 0 ? "+" : ""}
                     {summary.returnPct.toFixed(2)}% sobre o custo
@@ -398,7 +398,7 @@ export default function Analytics() {
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-foreground">Valor do Portfólio vs Custo</h3>
                 <p className="text-sm text-muted-foreground">
-                  Últimos 6 meses {isLoading || isPricesLoading ? "• carregando…" : ""}
+                  Últimos 6 meses {isLoading || isPricesLoading ? "• atualizando…" : ""}
                 </p>
               </div>
               <div className="h-[300px] w-full">

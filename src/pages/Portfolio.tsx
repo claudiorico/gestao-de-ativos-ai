@@ -27,6 +27,7 @@ export default function PortfolioPage() {
   const {
     portfoliosWithAssets,
     isLoading,
+    isPricesLoading,
     createPortfolio,
     updatePortfolio,
     removePortfolio,
@@ -106,12 +107,12 @@ export default function PortfolioPage() {
     } else {
       await createAsset(data);
     }
-    await refreshPortfolios();
+    await refreshPortfolios({ silent: true });
   };
 
   const handleDeleteAsset = async (assetId: string) => {
     await removeAsset(assetId);
-    await refreshPortfolios();
+    await refreshPortfolios({ silent: true });
   };
 
   if (!isUnlocked) {
@@ -171,10 +172,10 @@ export default function PortfolioPage() {
                   variant="outline"
                   className="w-full gap-2 sm:w-auto"
                   onClick={refreshQuotesNow}
-                  disabled={isLoading}
+                  disabled={isPricesLoading}
                   title="Atualiza as cotações agora"
                 >
-                  <RefreshCw className={isLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+                  <RefreshCw className={isPricesLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
                   Atualizar agora
                 </Button>
                 {quotesLastUpdatedLabel && (

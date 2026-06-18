@@ -14,38 +14,80 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { usePortfolios } from "@/hooks/usePortfolios";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
+import type { Asset, Portfolio } from "@/types/financial";
 
 export function SearchCommand() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const navigate = useNavigate();
-  const { portfoliosWithAssets } = usePortfolios();
-  const { isUnlocked } = useSecureStorage();
+  const { isUnlocked, getPortfolios, getAssets } = useSecureStorage();
+
+  useEffect(() => {
+    if (!isUnlocked) {
+      setPortfolios([]);
+      setAssets([]);
+      return;
+    }
+
+    let mounted = true;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+
+    const load = async () => {
+      const [nextPortfolios, nextAssets] = await Promise.all([
+        getPortfolios(),
+        getAssets(),
+      ]);
+
+      if (!mounted) return;
+      setPortfolios(nextPortfolios);
+      setAssets(nextAssets);
+    };
+
+    load().catch((error) => {
+      console.error("[SearchCommand] Failed to load search data", error);
+    });
+
+    const onVaultChange = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        load().catch((error) => {
+          console.error("[SearchCommand] Failed to refresh search data", error);
+        });
+      }, 300);
+    };
+
+    window.addEventListener("vault-data-changed", onVaultChange);
+    return () => {
+      mounted = false;
+      if (debounce) clearTimeout(debounce);
+      window.removeEventListener("vault-data-changed", onVaultChange);
+    };
+  }, [getAssets, getPortfolios, isUnlocked]);
 
   const searchItems = useMemo(() => {
     if (!isUnlocked) return { portfolios: [], assets: [] };
 
-    const portfolios = portfoliosWithAssets.map((p) => ({
+    const portfolioItems = portfolios.map((p) => ({
       id: p.id,
       name: p.name,
       type: "portfolio" as const,
     }));
 
-    const assets = portfoliosWithAssets.flatMap((portfolio) =>
-      portfolio.assets.map((asset) => ({
-        id: asset.id,
-        ticker: asset.ticker,
-        name: asset.name,
-        portfolioId: portfolio.id,
-        portfolioName: portfolio.name,
-        type: "asset" as const,
-      }))
-    );
+    const portfolioById = new Map(portfolios.map((p) => [p.id, p.name] as const));
+    const assetItems = assets.map((asset) => ({
+      id: asset.id,
+      ticker: asset.ticker,
+      name: asset.name,
+      portfolioId: asset.portfolioId,
+      portfolioName: portfolioById.get(asset.portfolioId) ?? "",
+      type: "asset" as const,
+    }));
 
-    return { portfolios, assets };
-  }, [portfoliosWithAssets, isUnlocked]);
+    return { portfolios: portfolioItems, assets: assetItems };
+  }, [assets, portfolios, isUnlocked]);
 
   const handleSelect = (type: "portfolio" | "asset", id: string, portfolioId?: string) => {
     setOpen(false);

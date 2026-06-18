@@ -471,7 +471,7 @@ export default function PortfolioDetailPage() {
         onOpenChange={(o) => !o && setAssetToMove(null)}
         asset={assetToMove}
         portfolios={portfoliosWithAssets.map((p) => ({ id: p.id, name: p.name }))}
-        onMoved={refresh}
+        onMoved={() => refresh({ silent: true })}
       />
     </DashboardLayout>
   );

@@ -3,7 +3,7 @@
  * Uses Edge Function to avoid CORS issues
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { invokeBackendFunction } from '@/lib/backend/functionsClient';
 
 export interface Quote {
@@ -36,6 +36,28 @@ const FUND_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
 // Backend limita a 20 tickers por request; então dividimos em lotes.
 const BACKEND_TICKER_BATCH_SIZE = 20;
 
+let sharedQuoteCache: {
+  quotes: Record<string, Quote>;
+  timestamps: Record<string, number>;
+} = { quotes: {}, timestamps: {} };
+
+function mergeQuotes(
+  current: Record<string, Quote>,
+  incoming: Record<string, Quote>
+): Record<string, Quote> {
+  let changed = false;
+  const next = { ...current };
+
+  for (const [ticker, quote] of Object.entries(incoming)) {
+    if (next[ticker] !== quote) {
+      next[ticker] = quote;
+      changed = true;
+    }
+  }
+
+  return changed ? next : current;
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   if (size <= 0) return [items];
   const out: T[][] = [];
@@ -54,11 +76,6 @@ export function usePrices(): UsePricesReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  
-  const cacheRef = useRef<{
-    quotes: Record<string, Quote>;
-    timestamps: Record<string, number>;
-  }>({ quotes: {}, timestamps: {} });
 
   const fetchQuotes = useCallback(async (tickers: string[], options?: { force?: boolean }) => {
     if (!tickers || tickers.length === 0) {
@@ -69,7 +86,7 @@ export function usePrices(): UsePricesReturn {
 
     // Filter out tickers that are still cached (unless forced)
     const now = Date.now();
-    const cachedQuotes = cacheRef.current;
+    const cachedQuotes = sharedQuoteCache;
     const tickersToFetch = force
       ? tickers
       : tickers.filter(ticker => {
@@ -91,7 +108,7 @@ export function usePrices(): UsePricesReturn {
           cachedResult[upperTicker] = cachedQuotes.quotes[upperTicker];
         }
       });
-      setQuotes(prev => ({ ...prev, ...cachedResult }));
+      setQuotes(prev => mergeQuotes(prev, cachedResult));
       return;
     }
 
@@ -137,7 +154,7 @@ export function usePrices(): UsePricesReturn {
         });
       }
 
-      cacheRef.current = {
+      sharedQuoteCache = {
         quotes: { ...cachedQuotes.quotes, ...newQuotes },
         timestamps: {
           ...cachedQuotes.timestamps,
@@ -145,7 +162,7 @@ export function usePrices(): UsePricesReturn {
         },
       };
 
-      setQuotes(prev => ({ ...prev, ...newQuotes }));
+      setQuotes(prev => mergeQuotes(prev, newQuotes));
       setLastUpdated(new Date());
 
     } catch (err) {

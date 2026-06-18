@@ -33,7 +33,6 @@ export function usePortfolios() {
     deletePortfolio,
     getAssets,
     getTransactions,
-    notifyDataChange,
   } = useSecureStorage();
 
   const { quotes, fetchQuotes, isLoading: isPricesLoading, lastUpdated: quotesLastUpdated } = usePrices();
@@ -122,8 +121,11 @@ export function usePortfolios() {
         .filter((a) => ['stock', 'reit', 'etf', 'crypto', 'investment_fund', 'fixed_income'].includes(a.type))
         .map((a) => a.ticker);
 
+      // Keep local calculations visible while quotes refresh in the background.
+      if (!opts?.silent) setIsLoading(false);
+
       if (tickers.length > 0) {
-        await fetchQuotes(tickers, { force: opts?.forceQuotes === true });
+        void fetchQuotes(tickers, { force: opts?.forceQuotes === true });
       }
     } catch (err) {
       setError('Erro ao carregar portfólios');
@@ -230,11 +232,10 @@ export function usePortfolios() {
       };
 
       await savePortfolio(newPortfolio);
-      notifyDataChange();
-      await loadPortfolios();
+      await loadPortfolios({ silent: true });
       return newPortfolio;
     },
-    [savePortfolio, notifyDataChange, loadPortfolios]
+    [savePortfolio, loadPortfolios]
   );
 
   // Update existing portfolio
@@ -250,21 +251,19 @@ export function usePortfolios() {
       };
 
       await savePortfolio(updated);
-      notifyDataChange();
-      await loadPortfolios();
+      await loadPortfolios({ silent: true });
       return updated;
     },
-    [portfolios, savePortfolio, notifyDataChange, loadPortfolios]
+    [portfolios, savePortfolio, loadPortfolios]
   );
 
   // Remove portfolio
   const removePortfolio = useCallback(
     async (id: string) => {
       await deletePortfolio(id);
-      notifyDataChange();
-      await loadPortfolios();
+      await loadPortfolios({ silent: true });
     },
-    [deletePortfolio, notifyDataChange, loadPortfolios]
+    [deletePortfolio, loadPortfolios]
   );
 
   // No desbloqueio/mount inicial, força cotações frescas.
@@ -326,7 +325,8 @@ export function usePortfolios() {
   return {
     portfolios,
     portfoliosWithAssets,
-    isLoading: isLoading || isPricesLoading,
+    isLoading,
+    isPricesLoading,
     error,
     createPortfolio,
     updatePortfolio,
