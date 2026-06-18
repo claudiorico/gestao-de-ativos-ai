@@ -6,23 +6,28 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSecureStorage } from '@/contexts/SecureStorageContext';
 import { usePrices, type Quote } from '@/hooks/usePrices';
-import type { Portfolio, Asset, Transaction } from '@/types/financial';
+import type { Asset, Portfolio, Transaction } from '@/types/financial';
+import {
+  buildPortfolioDataSignature,
+  computePortfolioSummaries,
+  isPricedAssetType,
+  type AssetWithPrice,
+  type PortfolioDisplaySnapshot,
+  type PortfolioWithAssets,
+} from '@/lib/portfolio-summary';
 
-export interface AssetWithPrice extends Asset {
-  currentPrice: number;
-  currentValue: number;
-  gain: number;
-  gainPercent: number;
-  priceChange: number;
-  priceChangePercent: number;
+export type { AssetWithPrice, PortfolioWithAssets };
+
+interface LoadedPortfolioData {
+  portfolios: Portfolio[];
+  assets: Asset[];
+  transactions: Transaction[];
+  dataSignature: string;
+  loadedAt: number;
 }
 
-export interface PortfolioWithAssets extends Portfolio {
-  assets: AssetWithPrice[];
-  currentValue: number;
-  currentAllocation: number;
-  totalGain: number;
-  totalGainPercent: number;
+function getPricedTickers(assets: Asset[]) {
+  return assets.filter((a) => isPricedAssetType(a.type)).map((a) => a.ticker);
 }
 
 export function usePortfolios() {
@@ -33,78 +38,53 @@ export function usePortfolios() {
     deletePortfolio,
     getAssets,
     getTransactions,
+    getPortfolioDisplaySnapshot,
+    savePortfolioDisplaySnapshot,
   } = useSecureStorage();
 
   const { quotes, fetchQuotes, isLoading: isPricesLoading, lastUpdated: quotesLastUpdated } = usePrices();
 
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [portfolioData, setPortfolioData] = useState<LoadedPortfolioData | null>(null);
   const [portfoliosWithAssets, setPortfoliosWithAssets] = useState<PortfolioWithAssets[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [allAssets, setAllAssets] = useState<Asset[]>([]);
-  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const hasDisplayDataRef = useRef(false);
 
-  const derivedHoldingsByAssetId = useMemo(() => {
-    // Calcula quantidade e preço médio a partir das transações.
-    // Sempre que o ativo tiver transações, elas são a fonte da verdade (mesmo que
-    // o ativo tenha sido criado com shares/averagePrice manuais).
-    const map = new Map<string, { shares: number; averagePrice: number }>();
-    const byAsset = new Map<string, Transaction[]>();
+  const portfolios = useMemo<Portfolio[]>(() => {
+    if (portfolioData) return portfolioData.portfolios;
 
-    for (const t of allTransactions) {
-      const list = byAsset.get(t.assetId) ?? [];
-      list.push(t);
-      byAsset.set(t.assetId, list);
+    return portfoliosWithAssets.map(({ assets, currentValue, currentAllocation, totalGain, totalGainPercent, ...portfolio }) => portfolio);
+  }, [portfolioData, portfoliosWithAssets]);
+  const allAssets = portfolioData?.assets ?? [];
+
+  const applyDisplaySnapshot = useCallback((snapshot: PortfolioDisplaySnapshot) => {
+    setPortfoliosWithAssets(snapshot.portfoliosWithAssets);
+    hasDisplayDataRef.current = true;
+    setIsLoading(false);
+  }, []);
+
+  const loadCachedSnapshot = useCallback(async () => {
+    if (!isUnlocked) return;
+
+    const snapshot = await getPortfolioDisplaySnapshot();
+    if (snapshot) {
+      applyDisplaySnapshot(snapshot);
     }
+  }, [applyDisplaySnapshot, getPortfolioDisplaySnapshot, isUnlocked]);
 
-    for (const [assetId, txs] of byAsset.entries()) {
-      const ordered = [...txs].sort((a, b) => a.date - b.date);
-      let shares = 0;
-      let cost = 0;
-
-      for (const tx of ordered) {
-        const qty = Number(tx.shares ?? 0);
-        const total = Number(tx.totalValue ?? 0);
-        if (!Number.isFinite(qty) || qty === 0) continue;
-
-        if (tx.type === 'buy') {
-          shares += qty;
-          cost += total;
-        } else {
-          // Reduz custo pelo preço médio atual (método custo médio)
-          const avg = shares > 0 ? cost / shares : 0;
-          const sellQty = Math.min(shares, qty);
-          shares -= sellQty;
-          cost -= avg * sellQty;
-        }
-      }
-
-      // shares pode chegar a 0 (ativo zerado por vendas) — nesse caso o preço médio
-      // não é mais significativo, mas a quantidade 0 ainda precisa prevalecer sobre
-      // o valor estático do ativo.
-      map.set(assetId, { shares, averagePrice: shares > 0 ? cost / shares : 0 });
-    }
-
-    return map;
-  }, [allTransactions]);
-
-  // Load portfolios and assets.
-  // forceQuotes=true deve ser usado apenas no desbloqueio/mount inicial para garantir
-  // cotações frescas. Mutações de dados locais (salvar ativo, mover, etc.) devem passar
-  // forceQuotes=false para reutilizar o cache (TTL 5 min) e não bater na edge function.
   const loadPortfolios = useCallback(async (opts?: { forceQuotes?: boolean; silent?: boolean }) => {
     if (!isUnlocked) {
-      setPortfolios([]);
+      setPortfolioData(null);
       setPortfoliosWithAssets([]);
-      setAllAssets([]);
+      hasDisplayDataRef.current = false;
       setIsLoading(false);
       return;
     }
 
     try {
-      // Reloads silenciosos (vault-data-changed) não alteram isLoading para evitar
-      // que o spinner desmonte a tabela e cause scroll indesejado.
-      if (!opts?.silent) setIsLoading(true);
+      // When a cached display snapshot exists, keep it visible while the fresh
+      // encrypted data is loaded and recalculated.
+      if (!opts?.silent && !hasDisplayDataRef.current) setIsLoading(true);
       setError(null);
 
       const [loadedPortfolios, loadedAssets, loadedTransactions] = await Promise.all([
@@ -113,17 +93,23 @@ export function usePortfolios() {
         getTransactions(),
       ]);
 
-      setPortfolios(loadedPortfolios);
-      setAllAssets(loadedAssets);
-      setAllTransactions(loadedTransactions);
+      const dataSignature = buildPortfolioDataSignature({
+        portfolios: loadedPortfolios,
+        assets: loadedAssets,
+        transactions: loadedTransactions,
+      });
 
-      const tickers = loadedAssets
-        .filter((a) => ['stock', 'reit', 'etf', 'crypto', 'investment_fund', 'fixed_income'].includes(a.type))
-        .map((a) => a.ticker);
+      setPortfolioData({
+        portfolios: loadedPortfolios,
+        assets: loadedAssets,
+        transactions: loadedTransactions,
+        dataSignature,
+        loadedAt: Date.now(),
+      });
 
-      // Keep local calculations visible while quotes refresh in the background.
       if (!opts?.silent) setIsLoading(false);
 
+      const tickers = getPricedTickers(loadedAssets);
       if (tickers.length > 0) {
         void fetchQuotes(tickers, { force: opts?.forceQuotes === true });
       }
@@ -133,94 +119,44 @@ export function usePortfolios() {
     } finally {
       if (!opts?.silent) setIsLoading(false);
     }
-  }, [isUnlocked, getPortfolios, getAssets, getTransactions, fetchQuotes]);
+  }, [
+    fetchQuotes,
+    getAssets,
+    getPortfolios,
+    getTransactions,
+    isUnlocked,
+  ]);
 
-  // Recalculate portfolios when quotes or assets change
+  const calculatedPortfolios = useMemo(() => {
+    if (!portfolioData) return null;
+
+    return computePortfolioSummaries({
+      portfolios: portfolioData.portfolios,
+      assets: portfolioData.assets,
+      transactions: portfolioData.transactions,
+      quotes: quotes as Record<string, Quote | undefined>,
+    });
+  }, [portfolioData, quotes]);
+
   useEffect(() => {
-    if (portfolios.length === 0 && allAssets.length === 0) {
-      setPortfoliosWithAssets([]);
-      return;
-    }
+    if (!portfolioData || !calculatedPortfolios) return;
 
-    // Enrich assets with current prices
-    const enrichedAssets: AssetWithPrice[] = allAssets.map((asset) => {
-      const derived = derivedHoldingsByAssetId.get(asset.id);
+    setPortfoliosWithAssets(calculatedPortfolios);
+    hasDisplayDataRef.current = true;
+    setIsLoading(false);
 
-      // Se existem transações para o ativo, elas são a fonte da verdade (mesmo que o
-      // ativo tenha sido criado com shares/averagePrice manuais). Sem transações,
-      // usamos a posição estática informada na criação do ativo.
-      const effectiveShares = derived ? derived.shares : asset.shares;
-      const effectiveAveragePrice = derived ? derived.averagePrice : asset.averagePrice;
+    const snapshot: PortfolioDisplaySnapshot = {
+      portfoliosWithAssets: calculatedPortfolios,
+      dataSignature: portfolioData.dataSignature,
+      quotesUpdatedAt: quotesLastUpdated?.toISOString() ?? null,
+      calculatedAt: Date.now(),
+    };
 
-      const quoteKey = String(asset.ticker ?? '')
-        .trim()
-        .toUpperCase();
-
-      // Alguns usuários podem salvar tickers no formato Yahoo (ex: "HGBS11.SA").
-      // O backend normaliza e devolve sem ".SA", então aqui garantimos a compatibilidade.
-      const quote =
-        quotes[quoteKey] ??
-        quotes[quoteKey.replace(/\.SA$/i, '')];
-
-      // Importante: não usar "||" aqui, porque quote.price pode ser 0 (falha/ausência) e isso derruba o cálculo.
-      const quotedPrice =
-        Number.isFinite(quote?.price) && (quote?.price ?? 0) > 0 ? (quote!.price as number) : null;
-      const currentPrice = quotedPrice ?? effectiveAveragePrice;
-
-      const currentValue = effectiveShares * currentPrice;
-      const costBasis = effectiveShares * effectiveAveragePrice;
-      const gain = currentValue - costBasis;
-      const gainPercent = costBasis > 0 ? (gain / costBasis) * 100 : 0;
-
-      return {
-        ...asset,
-        shares: effectiveShares,
-        averagePrice: effectiveAveragePrice,
-        currentPrice,
-        currentValue,
-        gain,
-        gainPercent,
-        priceChange: quote?.change || 0,
-        priceChangePercent: quote?.changePercent || 0,
-      };
+    savePortfolioDisplaySnapshot(snapshot).catch((err) => {
+      console.warn('[usePortfolios] Failed to save display snapshot', err);
     });
+  }, [calculatedPortfolios, portfolioData, quotesLastUpdated, savePortfolioDisplaySnapshot]);
 
-    // Calculate total portfolio value
-    const totalValue = enrichedAssets.reduce((sum, a) => sum + a.currentValue, 0);
-    const totalCost = allAssets.reduce((sum, a) => sum + a.shares * a.averagePrice, 0);
-
-    // Oculta ativos zerados (totalmente vendidos): quantidade ~0 e sem alocação-alvo.
-    // Mantém o ativo/transações no cofre (histórico/IR), só não exibe na carteira.
-    // Papéis planejados (shares 0 mas com alocação-alvo > 0) continuam visíveis.
-    const HOLDING_EPS = 1e-8;
-    const isVisibleHolding = (a: AssetWithPrice) =>
-      a.shares > HOLDING_EPS || (a.targetAllocation ?? 0) > 0;
-
-    // Map portfolios with their enriched assets
-    const enrichedPortfolios: PortfolioWithAssets[] = portfolios.map((portfolio) => {
-      const assets = enrichedAssets.filter(
-        (a) => a.portfolioId === portfolio.id && isVisibleHolding(a)
-      );
-      const currentValue = assets.reduce((sum, a) => sum + a.currentValue, 0);
-      const costBasis = assets.reduce((sum, a) => sum + a.shares * a.averagePrice, 0);
-      const currentAllocation = totalValue > 0 ? (currentValue / totalValue) * 100 : 0;
-      const totalGain = currentValue - costBasis;
-      const totalGainPercent = costBasis > 0 ? (totalGain / costBasis) * 100 : 0;
-
-      return {
-        ...portfolio,
-        assets,
-        currentValue,
-        currentAllocation,
-        totalGain,
-        totalGainPercent,
-      };
-    });
-
-    setPortfoliosWithAssets(enrichedPortfolios);
-  }, [portfolios, allAssets, quotes, derivedHoldingsByAssetId]);
-
-  // Create new portfolio
   const createPortfolio = useCallback(
     async (data: Omit<Portfolio, 'id' | 'createdAt' | 'updatedAt'>) => {
       const now = Date.now();
@@ -238,7 +174,6 @@ export function usePortfolios() {
     [savePortfolio, loadPortfolios]
   );
 
-  // Update existing portfolio
   const updatePortfolio = useCallback(
     async (id: string, data: Partial<Omit<Portfolio, 'id' | 'createdAt'>>) => {
       const existing = portfolios.find((p) => p.id === id);
@@ -257,7 +192,6 @@ export function usePortfolios() {
     [portfolios, savePortfolio, loadPortfolios]
   );
 
-  // Remove portfolio
   const removePortfolio = useCallback(
     async (id: string) => {
       await deletePortfolio(id);
@@ -266,15 +200,38 @@ export function usePortfolios() {
     [deletePortfolio, loadPortfolios]
   );
 
-  // No desbloqueio/mount inicial, força cotações frescas.
-  // Recargas subsequentes (mutações de dados) reutilizam o cache.
   useEffect(() => {
-    loadPortfolios({ forceQuotes: true });
-  }, [loadPortfolios]);
+    if (!isUnlocked) {
+      setPortfolioData(null);
+      setPortfoliosWithAssets([]);
+      hasDisplayDataRef.current = false;
+      setIsLoading(false);
+      return;
+    }
 
-  // Recarrega automaticamente quando qualquer parte do cofre mudar (ex.: manutenção de tickers).
-  // Com debounce: uma importação em massa dispara muitos eventos em sequência; sem isso
-  // recarregaríamos (e buscaríamos cotações) dezenas de vezes, estourando a edge function.
+    let cancelled = false;
+
+    const hydrate = async () => {
+      try {
+        await loadCachedSnapshot();
+      } catch (err) {
+        console.warn('[usePortfolios] Failed to load display snapshot', err);
+      }
+
+      if (!cancelled) {
+        await loadPortfolios({ forceQuotes: true });
+      }
+    };
+
+    hydrate().catch((err) => {
+      console.error('[usePortfolios] Failed to hydrate portfolios', err);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked, loadCachedSnapshot, loadPortfolios]);
+
   const reloadDebounceRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (!isUnlocked) return;
@@ -293,15 +250,11 @@ export function usePortfolios() {
     };
   }, [isUnlocked, loadPortfolios]);
 
-  // Refresh quotes periodically (every 5 minutes)
   useEffect(() => {
     if (!isUnlocked || allAssets.length === 0) return;
 
     const interval = setInterval(() => {
-      const tickers = allAssets
-        .filter((a) => ['stock', 'reit', 'etf', 'crypto', 'investment_fund', 'fixed_income'].includes(a.type))
-        .map((a) => a.ticker);
-      
+      const tickers = getPricedTickers(allAssets);
       if (tickers.length > 0) {
         fetchQuotes(tickers);
       }
@@ -313,10 +266,7 @@ export function usePortfolios() {
   const refreshQuotesNow = useCallback(async () => {
     if (!isUnlocked) return;
 
-    const tickers = allAssets
-      .filter((a) => ['stock', 'reit', 'etf', 'crypto', 'investment_fund', 'fixed_income'].includes(a.type))
-      .map((a) => a.ticker);
-
+    const tickers = getPricedTickers(allAssets);
     if (tickers.length > 0) {
       await fetchQuotes(tickers, { force: true });
     }

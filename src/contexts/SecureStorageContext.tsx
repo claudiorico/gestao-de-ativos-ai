@@ -37,6 +37,7 @@ import type {
   UserSettings,
   EncryptionMetadata,
 } from '@/types/financial';
+import type { PortfolioDisplaySnapshot } from '@/lib/portfolio-summary';
 
 interface SecureStorageState {
   isInitialized: boolean;
@@ -90,6 +91,8 @@ interface SecureStorageContextType extends SecureStorageState {
   // Settings
   getSettings: () => Promise<UserSettings | null>;
   saveSettings: (settings: UserSettings) => Promise<void>;
+  getPortfolioDisplaySnapshot: () => Promise<PortfolioDisplaySnapshot | null>;
+  savePortfolioDisplaySnapshot: (snapshot: PortfolioDisplaySnapshot) => Promise<void>;
 
   // Data management
   exportEncryptedBackup: () => Promise<string>;
@@ -109,6 +112,7 @@ const SecureStorageContext = createContext<SecureStorageContextType | null>(null
 
 const METADATA_KEY = 'encryption_metadata';
 const MASTER_DATA_KEY = 'master';
+const PORTFOLIO_DISPLAY_SNAPSHOT_KEY = 'portfolio_display_snapshot_v1';
 const KEY_VERIFIER_KEY = 'key_verifier';
 const KEY_VERIFIER_VALUE = 'investpro-vault-key-v1';
 const RECORD_DATA_PREFIX = 'record:';
@@ -522,6 +526,30 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     [encryptionKey, notifyDataChange]
   );
 
+  const getPortfolioDisplaySnapshot = useCallback(async (): Promise<PortfolioDisplaySnapshot | null> => {
+    if (!encryptionKey) return null;
+
+    const encrypted = await getItem('settings', PORTFOLIO_DISPLAY_SNAPSHOT_KEY);
+    if (!encrypted) return null;
+
+    try {
+      return await decryptJson<PortfolioDisplaySnapshot>('settings', encrypted);
+    } catch (error) {
+      console.warn('[SecureStorage] Ignoring invalid portfolio display snapshot', error);
+      return null;
+    }
+  }, [decryptJson, encryptionKey]);
+
+  const savePortfolioDisplaySnapshot = useCallback(
+    async (snapshot: PortfolioDisplaySnapshot): Promise<void> => {
+      if (!encryptionKey) throw new Error('Vault is locked');
+
+      const encrypted = await encrypt(JSON.stringify(snapshot), encryptionKey);
+      await setItem('settings', PORTFOLIO_DISPLAY_SNAPSHOT_KEY, encrypted);
+    },
+    [encryptionKey]
+  );
+
   // Backup/restore
   const exportEncryptedBackup = useCallback(async (): Promise<string> => {
     if (!encryptionKey) throw new Error('Vault is locked');
@@ -711,6 +739,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     deleteCashMovement,
     getSettings,
     saveSettings,
+    getPortfolioDisplaySnapshot,
+    savePortfolioDisplaySnapshot,
     exportEncryptedBackup,
     importEncryptedBackup,
     wipeAllData,
