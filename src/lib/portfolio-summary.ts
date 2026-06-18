@@ -27,6 +27,7 @@ export interface PortfolioDisplaySnapshot {
   portfoliosWithAssets: PortfolioWithAssets[];
   dataSignature: string;
   quotesUpdatedAt: string | null;
+  hasQuoteData?: boolean;
   calculatedAt: number;
 }
 
@@ -99,6 +100,17 @@ function computeDerivedHoldings(transactions: Transaction[]) {
 
 export function isPricedAssetType(type: Asset["type"]) {
   return PRICED_ASSET_TYPES.includes(type);
+}
+
+export function computeAssetDayGain(
+  asset: Pick<AssetWithPrice, "shares" | "currentPrice" | "priceChangePercent">
+) {
+  const pct = Number.isFinite(asset.priceChangePercent) ? asset.priceChangePercent : 0;
+  if (pct === 0) return 0;
+
+  const previousPrice = asset.currentPrice / (1 + pct / 100);
+  const delta = asset.shares * (asset.currentPrice - previousPrice);
+  return Number.isFinite(delta) ? delta : 0;
 }
 
 export function buildPortfolioDataSignature(input: {

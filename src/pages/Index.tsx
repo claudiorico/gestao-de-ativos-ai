@@ -11,6 +11,7 @@ import { usePortfolios } from "@/hooks/usePortfolios";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { computeAssetDayGain } from "@/lib/portfolio-summary";
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat("pt-BR", {
@@ -50,11 +51,7 @@ const Index = () => {
         totalValue += assetValue;
         totalCost += assetCost;
 
-        // Day gain from price variation
-        if (asset.priceChange !== undefined) {
-          const previousPrice = currentPrice / (1 + asset.priceChange / 100);
-          dayGain += asset.shares * (currentPrice - previousPrice);
-        }
+        dayGain += computeAssetDayGain(asset);
       });
     });
 
@@ -92,7 +89,7 @@ const Index = () => {
           name: asset.name,
           value,
           price: currentPrice,
-          change: asset.priceChange ?? 0,
+          change: asset.priceChangePercent ?? 0,
           allocation: metrics.totalValue > 0 ? (value / metrics.totalValue) * 100 : 0,
         });
       });

@@ -30,6 +30,11 @@ function getPricedTickers(assets: Asset[]) {
   return assets.filter((a) => isPricedAssetType(a.type)).map((a) => a.ticker);
 }
 
+function getQuoteForTicker(quotes: Record<string, Quote | undefined>, ticker: string) {
+  const key = String(ticker ?? '').trim().toUpperCase();
+  return quotes[key] ?? quotes[key.replace(/\.SA$/i, '')];
+}
+
 export function usePortfolios() {
   const {
     isUnlocked,
@@ -67,7 +72,7 @@ export function usePortfolios() {
     if (!isUnlocked) return;
 
     const snapshot = await getPortfolioDisplaySnapshot();
-    if (snapshot) {
+    if (snapshot && (snapshot.hasQuoteData === true || !!snapshot.quotesUpdatedAt)) {
       applyDisplaySnapshot(snapshot);
     }
   }, [applyDisplaySnapshot, getPortfolioDisplaySnapshot, isUnlocked]);
@@ -107,7 +112,7 @@ export function usePortfolios() {
         loadedAt: Date.now(),
       });
 
-      if (!opts?.silent) setIsLoading(false);
+      if (!opts?.silent && hasDisplayDataRef.current) setIsLoading(false);
 
       const tickers = getPricedTickers(loadedAssets);
       if (tickers.length > 0) {
@@ -116,8 +121,9 @@ export function usePortfolios() {
     } catch (err) {
       setError('Erro ao carregar portfólios');
       console.error('Error loading portfolios:', err);
-    } finally {
       if (!opts?.silent) setIsLoading(false);
+    } finally {
+      if (!opts?.silent && hasDisplayDataRef.current) setIsLoading(false);
     }
   }, [
     fetchQuotes,
@@ -138,8 +144,23 @@ export function usePortfolios() {
     });
   }, [portfolioData, quotes]);
 
+  const pricedTickers = useMemo(
+    () => (portfolioData ? getPricedTickers(portfolioData.assets) : []),
+    [portfolioData]
+  );
+
+  const hasQuoteDataForSnapshot = useMemo(() => {
+    if (pricedTickers.length === 0) return true;
+    return pricedTickers.every((ticker) => !!getQuoteForTicker(quotes, ticker));
+  }, [pricedTickers, quotes]);
+
   useEffect(() => {
     if (!portfolioData || !calculatedPortfolios) return;
+
+    if (!hasQuoteDataForSnapshot) {
+      if (!hasDisplayDataRef.current) setIsLoading(true);
+      return;
+    }
 
     setPortfoliosWithAssets(calculatedPortfolios);
     hasDisplayDataRef.current = true;
@@ -149,13 +170,20 @@ export function usePortfolios() {
       portfoliosWithAssets: calculatedPortfolios,
       dataSignature: portfolioData.dataSignature,
       quotesUpdatedAt: quotesLastUpdated?.toISOString() ?? null,
+      hasQuoteData: true,
       calculatedAt: Date.now(),
     };
 
     savePortfolioDisplaySnapshot(snapshot).catch((err) => {
       console.warn('[usePortfolios] Failed to save display snapshot', err);
     });
-  }, [calculatedPortfolios, portfolioData, quotesLastUpdated, savePortfolioDisplaySnapshot]);
+  }, [
+    calculatedPortfolios,
+    hasQuoteDataForSnapshot,
+    portfolioData,
+    quotesLastUpdated,
+    savePortfolioDisplaySnapshot,
+  ]);
 
   const createPortfolio = useCallback(
     async (data: Omit<Portfolio, 'id' | 'createdAt' | 'updatedAt'>) => {

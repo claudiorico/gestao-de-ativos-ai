@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePortfolioSummaries } from "../lib/portfolio-summary";
+import { computeAssetDayGain, computePortfolioSummaries } from "../lib/portfolio-summary";
 import type { Asset, Portfolio, Transaction } from "../types/financial";
 
 const portfolio: Portfolio = {
@@ -125,5 +125,23 @@ describe("portfolio-summary", () => {
     expect(asset.gain).toBe(25);
     expect(asset.priceChange).toBe(2);
     expect(asset.priceChangePercent).toBe(3);
+  });
+
+  it("calculates day gain from changePercent, not from the absolute change value", () => {
+    const result = computePortfolioSummaries({
+      portfolios: [portfolio],
+      assets: [makeAsset({ shares: 10, averagePrice: 80 })],
+      transactions: [],
+      quotes: {
+        TEST3: {
+          price: 100,
+          change: 50,
+          changePercent: 10,
+        },
+      },
+    });
+
+    const asset = result[0].assets[0];
+    expect(computeAssetDayGain(asset)).toBeCloseTo(90.909, 3);
   });
 });

@@ -23,6 +23,7 @@ import { Blur } from "@/components/ui/blur";
  import { Badge } from "@/components/ui/badge";
  import { Search, ArrowUpDown, TrendingUp, TrendingDown } from "lucide-react";
  import type { PortfolioWithAssets } from "@/hooks/usePortfolios";
+ import { computeAssetDayGain } from "@/lib/portfolio-summary";
  
  interface AssetsGainsTableProps {
    portfolios: PortfolioWithAssets[];
@@ -57,7 +58,8 @@ import { Blur } from "@/components/ui/blur";
    const allAssets = useMemo(() => {
      const assets = portfolios.flatMap((portfolio) =>
        portfolio.assets.map((asset) => {
-         const dayGain = asset.shares * (asset.currentPrice - asset.currentPrice / (1 + (asset.priceChange || 0) / 100));
+         const dayGainPercent = Number.isFinite(asset.priceChangePercent) ? asset.priceChangePercent : 0;
+         const dayGain = computeAssetDayGain(asset);
         const dayGainNumber = Number.isFinite(dayGain) ? dayGain : 0;
          const allocation = totalValue > 0 ? (asset.currentValue / totalValue) * 100 : 0;
  
@@ -72,9 +74,9 @@ import { Blur } from "@/components/ui/blur";
            shares: asset.shares,
            currentPrice: asset.currentPrice,
            averagePrice: asset.averagePrice,
-           currentValue: asset.currentValue,
+          currentValue: asset.currentValue,
           dayGain: dayGainNumber,
-           dayGainPercent: asset.priceChange || 0,
+           dayGainPercent,
            totalGain: asset.gain,
            totalGainPercent: asset.gainPercent,
            allocation,
