@@ -26,6 +26,8 @@ interface LoadedPortfolioData {
   loadedAt: number;
 }
 
+type IdleCallbackHandle = ReturnType<typeof setTimeout> | number;
+
 function getPricedTickers(assets: Asset[]) {
   return assets.filter((a) => isPricedAssetType(a.type)).map((a) => a.ticker);
 }
@@ -33,6 +35,23 @@ function getPricedTickers(assets: Asset[]) {
 function getQuoteForTicker(quotes: Record<string, Quote | undefined>, ticker: string) {
   const key = String(ticker ?? '').trim().toUpperCase();
   return quotes[key] ?? quotes[key.replace(/\.SA$/i, '')];
+}
+
+function scheduleIdleTask(callback: () => void): IdleCallbackHandle {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    return window.requestIdleCallback(callback, { timeout: 2500 });
+  }
+
+  return setTimeout(callback, 500);
+}
+
+function cancelIdleTask(handle: IdleCallbackHandle) {
+  if (typeof window !== 'undefined' && 'cancelIdleCallback' in window && typeof handle === 'number') {
+    window.cancelIdleCallback(handle);
+    return;
+  }
+
+  clearTimeout(handle as ReturnType<typeof setTimeout>);
 }
 
 export function usePortfolios() {
@@ -54,6 +73,8 @@ export function usePortfolios() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasDisplayDataRef = useRef(false);
+  const snapshotSaveHandleRef = useRef<IdleCallbackHandle | null>(null);
+  const lastSavedSnapshotKeyRef = useRef<string | null>(null);
 
   const portfolios = useMemo<Portfolio[]>(() => {
     if (portfolioData) return portfolioData.portfolios;
@@ -174,8 +195,23 @@ export function usePortfolios() {
       calculatedAt: Date.now(),
     };
 
-    savePortfolioDisplaySnapshot(snapshot).catch((err) => {
-      console.warn('[usePortfolios] Failed to save display snapshot', err);
+    const saveKey = `${snapshot.dataSignature}:${snapshot.quotesUpdatedAt ?? 'no-quotes'}`;
+    if (lastSavedSnapshotKeyRef.current === saveKey) return;
+
+    if (snapshotSaveHandleRef.current) {
+      cancelIdleTask(snapshotSaveHandleRef.current);
+      snapshotSaveHandleRef.current = null;
+    }
+
+    snapshotSaveHandleRef.current = scheduleIdleTask(() => {
+      snapshotSaveHandleRef.current = null;
+      savePortfolioDisplaySnapshot(snapshot)
+        .then(() => {
+          lastSavedSnapshotKeyRef.current = saveKey;
+        })
+        .catch((err) => {
+          console.warn('[usePortfolios] Failed to save display snapshot', err);
+        });
     });
   }, [
     calculatedPortfolios,
@@ -184,6 +220,15 @@ export function usePortfolios() {
     quotesLastUpdated,
     savePortfolioDisplaySnapshot,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (snapshotSaveHandleRef.current) {
+        cancelIdleTask(snapshotSaveHandleRef.current);
+        snapshotSaveHandleRef.current = null;
+      }
+    };
+  }, []);
 
   const createPortfolio = useCallback(
     async (data: Omit<Portfolio, 'id' | 'createdAt' | 'updatedAt'>) => {
