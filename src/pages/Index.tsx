@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { Wallet, TrendingUp, PiggyBank, Loader2 } from "lucide-react";
 import { usePortfolios } from "@/hooks/usePortfolios";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { computeAssetDayGain } from "@/lib/portfolio-summary";
 
@@ -24,6 +24,32 @@ const Index = () => {
   const navigate = useNavigate();
   const { isUnlocked } = useSecureStorage();
   const { portfoliosWithAssets, isLoading } = usePortfolios();
+  const [showHeavySections, setShowHeavySections] = useState(false);
+
+  useEffect(() => {
+    if (!portfoliosWithAssets.length) {
+      setShowHeavySections(false);
+      return;
+    }
+
+    const schedule = (callback: () => void) => {
+      if ("requestIdleCallback" in window) {
+        return window.requestIdleCallback(callback, { timeout: 1500 });
+      }
+      return window.setTimeout(callback, 250);
+    };
+
+    const cancel = (handle: number) => {
+      if ("cancelIdleCallback" in window) {
+        window.cancelIdleCallback(handle);
+        return;
+      }
+      window.clearTimeout(handle);
+    };
+
+    const handle = schedule(() => setShowHeavySections(true));
+    return () => cancel(handle);
+  }, [portfoliosWithAssets.length]);
 
   // Calculate real metrics from portfolios
   const metrics = useMemo(() => {
@@ -41,21 +67,18 @@ const Index = () => {
     let totalValue = 0;
     let totalCost = 0;
     let dayGain = 0;
+    let totalGain = 0;
 
     portfoliosWithAssets.forEach((portfolio) => {
-      portfolio.assets.forEach((asset) => {
-        const currentPrice = asset.currentPrice ?? asset.averagePrice;
-        const assetValue = asset.shares * currentPrice;
-        const assetCost = asset.shares * asset.averagePrice;
-        
-        totalValue += assetValue;
-        totalCost += assetCost;
+      totalValue += Number.isFinite(portfolio.currentValue) ? portfolio.currentValue : 0;
+      totalGain += Number.isFinite(portfolio.totalGain) ? portfolio.totalGain : 0;
 
+      portfolio.assets.forEach((asset) => {
         dayGain += computeAssetDayGain(asset);
       });
     });
 
-    const totalGain = totalValue - totalCost;
+    totalCost = totalValue - totalGain;
     const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
     const dayGainPercent = totalValue > 0 ? (dayGain / totalValue) * 100 : 0;
 
@@ -204,14 +227,20 @@ const Index = () => {
               <PatrimonyChart totalValue={metrics.totalValue} />
             </div>
 
-            {/* Bottom Row */}
-            <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-2">
-              <DividendsChart />
-              <TopAssets assets={allAssets} totalValue={metrics.totalValue} />
-            </div>
+            {showHeavySections && (
+              <>
+                {/* Bottom Row */}
+                <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-2">
+                  <DividendsChart />
+                  <TopAssets assets={allAssets} totalValue={metrics.totalValue} />
+                </div>
 
-            {/* Assets Gains Table */}
-            <AssetsGainsTable portfolios={portfoliosWithAssets} />
+                {/* Assets Gains Table */}
+                {portfoliosWithAssets.some((p) => p.assets.length > 0) && (
+                  <AssetsGainsTable portfolios={portfoliosWithAssets} />
+                )}
+              </>
+            )}
           </>
         )}
 

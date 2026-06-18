@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -47,6 +47,14 @@ const features = [
     title: 'Importar B3',
     description: 'Importação de CSV de negociação, movimentação e Tesouro Direto.',
   },
+];
+
+const publicPages = [
+  { href: '/importar-b3', label: 'Importar B3' },
+  { href: '/controle-carteira-investimentos', label: 'Controle de carteira' },
+  { href: '/imposto-renda-investimentos', label: 'Imposto de renda' },
+  { href: '/backup-criptografado-google-drive', label: 'Backup criptografado' },
+  { href: '/rebalanceamento-carteira', label: 'Rebalanceamento' },
 ];
 
 const fadeUp = {
@@ -106,6 +114,13 @@ export default function Landing() {
             </div>
             <span className="font-semibold tracking-tight">Cofre Investimentos</span>
           </div>
+          <nav className="hidden items-center gap-5 text-sm text-muted-foreground lg:flex">
+            {publicPages.slice(0, 3).map((page) => (
+              <Link key={page.href} to={page.href} className="transition-colors hover:text-foreground">
+                {page.label}
+              </Link>
+            ))}
+          </nav>
           <Button onClick={handleLogin} disabled={isLoading} size="sm" className="gap-2">
             {isLoading ? 'Entrando...' : 'Entrar'}
             <ChevronRight className="h-4 w-4" />
@@ -368,14 +383,22 @@ export default function Landing() {
 
       {/* Footer */}
       <footer className="border-t border-border/50 bg-card/20">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 text-sm text-muted-foreground sm:px-6">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {publicPages.map((page) => (
+              <Link key={page.href} to={page.href} className="hover:text-foreground transition-colors">
+                {page.label}
+              </Link>
+            ))}
+          </div>
+          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" />
             <span>© {new Date().getFullYear()} Cofre Investimentos</span>
           </div>
           <div className="flex items-center gap-6">
             <a
-              href="https://github.com/claudiorico81/gestao-de-ativos-ai"
+              href="https://github.com/claudiorico/gestao-de-ativos-ai"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 hover:text-foreground transition-colors"
@@ -389,6 +412,7 @@ export default function Landing() {
             <a href="/ajuda" className="hover:text-foreground transition-colors">
               Ajuda
             </a>
+          </div>
           </div>
         </div>
       </footer>

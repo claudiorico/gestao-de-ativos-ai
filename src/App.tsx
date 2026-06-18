@@ -16,6 +16,13 @@ import AuthDiagnostics from "./pages/AuthDiagnostics";
 import Privacy from "./pages/Privacy";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
+import {
+  BackupCriptografadoPage,
+  ControleCarteiraPage,
+  ImportarB3Page,
+  ImpostoRendaPage,
+  RebalanceamentoCarteiraPage,
+} from "./pages/FeatureSeoPage";
 
 // Rotas protegidas: lazy-loaded para manter o bundle inicial pequeno
 // (só carregam após login + desbloqueio do cofre, então o code-split não atrasa a home pública)
@@ -69,6 +76,11 @@ function AppContent() {
           <Route path="/auth/diagnostico" element={<AuthDiagnostics />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/ajuda" element={<Help />} />
+          <Route path="/importar-b3" element={<ImportarB3Page />} />
+          <Route path="/controle-carteira-investimentos" element={<ControleCarteiraPage />} />
+          <Route path="/imposto-renda-investimentos" element={<ImpostoRendaPage />} />
+          <Route path="/backup-criptografado-google-drive" element={<BackupCriptografadoPage />} />
+          <Route path="/rebalanceamento-carteira" element={<RebalanceamentoCarteiraPage />} />
 
           {/* Everything requires: 1) Google login 2) Vault unlock */}
           <Route element={<ProtectedLayout />}>

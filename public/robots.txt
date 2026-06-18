@@ -2,6 +2,11 @@ User-agent: *
 Allow: /
 Allow: /privacy
 Allow: /ajuda
+Allow: /importar-b3
+Allow: /controle-carteira-investimentos
+Allow: /imposto-renda-investimentos
+Allow: /backup-criptografado-google-drive
+Allow: /rebalanceamento-carteira
 Disallow: /home
 Disallow: /portfolio
 Disallow: /balancing

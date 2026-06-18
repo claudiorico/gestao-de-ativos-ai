@@ -54,6 +54,13 @@ function cancelIdleTask(handle: IdleCallbackHandle) {
   clearTimeout(handle as ReturnType<typeof setTimeout>);
 }
 
+function toLightweightSnapshotPortfolios(portfolios: PortfolioWithAssets[]): PortfolioWithAssets[] {
+  return portfolios.map((portfolio) => ({
+    ...portfolio,
+    assets: [],
+  }));
+}
+
 export function usePortfolios() {
   const {
     isUnlocked,
@@ -188,7 +195,7 @@ export function usePortfolios() {
     setIsLoading(false);
 
     const snapshot: PortfolioDisplaySnapshot = {
-      portfoliosWithAssets: calculatedPortfolios,
+      portfoliosWithAssets: toLightweightSnapshotPortfolios(calculatedPortfolios),
       dataSignature: portfolioData.dataSignature,
       quotesUpdatedAt: quotesLastUpdated?.toISOString() ?? null,
       hasQuoteData: true,
