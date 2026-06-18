@@ -1,0 +1,47 @@
+name: 🐛 Relatar um bug
+description: Algo não está funcionando como esperado
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: O que aconteceu?
+      description: Descreva o problema de forma clara
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Como reproduzir
+      description: Passos para reproduzir o comportamento
+      placeholder: |
+        1. Vá para '...'
+        2. Clique em '...'
+        3. Veja o erro
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado
+      description: O que deveria acontecer?
+    validations:
+      required: false
+
+  - type: input
+    id: browser
+    attributes:
+      label: Navegador / dispositivo
+      placeholder: "Ex: Chrome 124 no Windows 11, Safari no iPhone 14"
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Contexto adicional
+      description: Screenshots, mensagens de erro do console, etc.
+    validations:
+      required: false
