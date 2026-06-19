@@ -9,6 +9,7 @@ import { usePrices, type Quote } from '@/hooks/usePrices';
 import type { Asset, Portfolio, Transaction } from '@/types/financial';
 import {
   buildPortfolioDataSignature,
+  computeAssetPositions,
   computePortfolioSummaries,
   isPricedAssetType,
   type AssetWithPrice,
@@ -86,7 +87,7 @@ export function usePortfolios() {
   const portfolios = useMemo<Portfolio[]>(() => {
     if (portfolioData) return portfolioData.portfolios;
 
-    return portfoliosWithAssets.map(({ assets, currentValue, currentAllocation, totalGain, totalGainPercent, ...portfolio }) => portfolio);
+    return portfoliosWithAssets.map(({ assets, openCostBasis, currentValue, currentAllocation, totalGain, totalGainPercent, ...portfolio }) => portfolio);
   }, [portfolioData, portfoliosWithAssets]);
   const allAssets = portfolioData?.assets ?? [];
 
@@ -161,6 +162,10 @@ export function usePortfolios() {
     isUnlocked,
   ]);
 
+  const computedPositionsByAssetId = useMemo(() => {
+    return portfolioData ? computeAssetPositions(portfolioData.transactions) : undefined;
+  }, [portfolioData]);
+
   const calculatedPortfolios = useMemo(() => {
     if (!portfolioData) return null;
 
@@ -168,9 +173,10 @@ export function usePortfolios() {
       portfolios: portfolioData.portfolios,
       assets: portfolioData.assets,
       transactions: portfolioData.transactions,
+      positionsByAssetId: computedPositionsByAssetId,
       quotes: quotes as Record<string, Quote | undefined>,
     });
-  }, [portfolioData, quotes]);
+  }, [computedPositionsByAssetId, portfolioData, quotes]);
 
   const pricedTickers = useMemo(
     () => (portfolioData ? getPricedTickers(portfolioData.assets) : []),

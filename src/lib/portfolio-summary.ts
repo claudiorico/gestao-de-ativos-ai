@@ -7,6 +7,7 @@ export interface PortfolioQuote {
 }
 
 export interface AssetWithPrice extends Asset {
+  openCostBasis: number;
   currentPrice: number;
   currentValue: number;
   gain: number;
@@ -17,6 +18,7 @@ export interface AssetWithPrice extends Asset {
 
 export interface PortfolioWithAssets extends Portfolio {
   assets: AssetWithPrice[];
+  openCostBasis: number;
   currentValue: number;
   currentAllocation: number;
   totalGain: number;
@@ -36,6 +38,7 @@ interface ComputePortfolioSummariesInput {
   assets: Asset[];
   transactions: Transaction[];
   quotes?: Record<string, PortfolioQuote | undefined>;
+  positionsByAssetId?: Map<string, AssetPosition>;
 }
 
 const PRICED_ASSET_TYPES: Asset["type"][] = [
@@ -49,6 +52,12 @@ const PRICED_ASSET_TYPES: Asset["type"][] = [
 
 const HOLDING_EPS = 1e-8;
 
+export interface AssetPosition {
+  shares: number;
+  openCostBasis: number;
+  averagePrice: number;
+}
+
 function normalizeTickerKey(ticker: string) {
   return String(ticker ?? "").trim().toUpperCase();
 }
@@ -61,8 +70,8 @@ function getQuoteForAsset(
   return quotes[quoteKey] ?? quotes[quoteKey.replace(/\.SA$/i, "")];
 }
 
-function computeDerivedHoldings(transactions: Transaction[]) {
-  const map = new Map<string, { shares: number; averagePrice: number }>();
+export function computeAssetPositions(transactions: Transaction[]) {
+  const map = new Map<string, AssetPosition>();
   const byAsset = new Map<string, Transaction[]>();
 
   for (const t of transactions) {
@@ -79,20 +88,30 @@ function computeDerivedHoldings(transactions: Transaction[]) {
     for (const tx of ordered) {
       const qty = Number(tx.shares ?? 0);
       const total = Number(tx.totalValue ?? 0);
+      const fees = Number(tx.fees ?? 0);
       if (!Number.isFinite(qty) || qty === 0) continue;
 
       if (tx.type === "buy") {
         shares += qty;
-        cost += total;
+        cost += (Number.isFinite(total) ? total : 0) + (Number.isFinite(fees) ? fees : 0);
       } else {
         const avg = shares > 0 ? cost / shares : 0;
         const sellQty = Math.min(shares, qty);
         shares -= sellQty;
         cost -= avg * sellQty;
       }
+
+      if (shares <= HOLDING_EPS) {
+        shares = 0;
+        cost = 0;
+      }
     }
 
-    map.set(assetId, { shares, averagePrice: shares > 0 ? cost / shares : 0 });
+    map.set(assetId, {
+      shares,
+      openCostBasis: cost,
+      averagePrice: shares > 0 ? cost / shares : 0,
+    });
   }
 
   return map;
@@ -127,7 +146,7 @@ export function buildPortfolioDataSignature(input: {
     .sort()
     .join("|");
   const transactionPart = input.transactions
-    .map((t) => `${t.id}:${t.createdAt}:${t.date}:${t.shares}:${t.totalValue}`)
+    .map((t) => `${t.id}:${t.createdAt}:${t.type}:${t.date}:${t.shares}:${t.pricePerShare}:${t.totalValue}:${t.fees}`)
     .sort()
     .join("|");
 
@@ -139,15 +158,19 @@ export function computePortfolioSummaries({
   assets,
   transactions,
   quotes = {},
+  positionsByAssetId,
 }: ComputePortfolioSummariesInput): PortfolioWithAssets[] {
   if (portfolios.length === 0 && assets.length === 0) return [];
 
-  const derivedHoldingsByAssetId = computeDerivedHoldings(transactions);
+  const assetPositions = positionsByAssetId ?? computeAssetPositions(transactions);
 
   const enrichedAssets: AssetWithPrice[] = assets.map((asset) => {
-    const derived = derivedHoldingsByAssetId.get(asset.id);
-    const effectiveShares = derived ? derived.shares : asset.shares;
-    const effectiveAveragePrice = derived ? derived.averagePrice : asset.averagePrice;
+    const position = assetPositions.get(asset.id);
+    const effectiveShares = position ? position.shares : asset.shares;
+    const effectiveAveragePrice = position ? position.averagePrice : asset.averagePrice;
+    const openCostBasis = position
+      ? position.openCostBasis
+      : effectiveShares * effectiveAveragePrice;
     const quote = getQuoteForAsset(quotes, asset.ticker);
 
     const quotedPrice =
@@ -157,14 +180,14 @@ export function computePortfolioSummaries({
     const currentPrice = quotedPrice ?? effectiveAveragePrice;
 
     const currentValue = effectiveShares * currentPrice;
-    const costBasis = effectiveShares * effectiveAveragePrice;
-    const gain = currentValue - costBasis;
-    const gainPercent = costBasis > 0 ? (gain / costBasis) * 100 : 0;
+    const gain = currentValue - openCostBasis;
+    const gainPercent = openCostBasis > 0 ? (gain / openCostBasis) * 100 : 0;
 
     return {
       ...asset,
       shares: effectiveShares,
       averagePrice: effectiveAveragePrice,
+      openCostBasis,
       currentPrice,
       currentValue,
       gain,
@@ -183,14 +206,15 @@ export function computePortfolioSummaries({
       (a) => a.portfolioId === portfolio.id && isVisibleHolding(a)
     );
     const currentValue = portfolioAssets.reduce((sum, a) => sum + a.currentValue, 0);
-    const costBasis = portfolioAssets.reduce((sum, a) => sum + a.shares * a.averagePrice, 0);
+    const openCostBasis = portfolioAssets.reduce((sum, a) => sum + a.openCostBasis, 0);
     const currentAllocation = totalValue > 0 ? (currentValue / totalValue) * 100 : 0;
-    const totalGain = currentValue - costBasis;
-    const totalGainPercent = costBasis > 0 ? (totalGain / costBasis) * 100 : 0;
+    const totalGain = currentValue - openCostBasis;
+    const totalGainPercent = openCostBasis > 0 ? (totalGain / openCostBasis) * 100 : 0;
 
     return {
       ...portfolio,
       assets: portfolioAssets,
+      openCostBasis,
       currentValue,
       currentAllocation,
       totalGain,

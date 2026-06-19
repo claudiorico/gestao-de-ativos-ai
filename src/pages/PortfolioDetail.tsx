@@ -19,6 +19,7 @@ import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import type { Asset, Dividend } from "@/types/financial";
 import type { AssetWithPrice } from "@/hooks/usePortfolios";
 import { Blur } from "@/components/ui/blur";
+import { computeAssetDayGain } from "@/lib/portfolio-summary";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", {
@@ -134,10 +135,7 @@ export default function PortfolioDetailPage() {
   const summary = useMemo(() => {
     if (!portfolio) return null;
 
-    const costBasis = portfolio.assets.reduce(
-      (sum, a) => sum + a.shares * a.averagePrice,
-      0
-    );
+    const costBasis = portfolio.openCostBasis;
 
     const totalDividends = dividends.reduce(
       (sum, d) => sum + (Number.isFinite(d.totalValue) ? d.totalValue : 0),
@@ -173,6 +171,10 @@ export default function PortfolioDetailPage() {
       dayGainPercent,
     };
   }, [dividends, portfolio]);
+
+  const sortedPortfolioAssets = useMemo(() => {
+    return portfolio ? [...portfolio.assets].sort((a, b) => b.currentValue - a.currentValue) : [];
+  }, [portfolio]);
 
   return (
     <DashboardLayout>
@@ -314,32 +316,21 @@ export default function PortfolioDetailPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody className="[&>tr:nth-child(odd)]:bg-muted/20 [&>tr:nth-child(even)]:bg-muted/35 dark:[&>tr:nth-child(odd)]:bg-muted/10 dark:[&>tr:nth-child(even)]:bg-muted/20">
-                    {portfolio.assets
-                      .slice()
-                      .sort((a, b) => b.currentValue - a.currentValue)
-                      .map((a) => {
+                    {sortedPortfolioAssets.map((a) => {
                         const allocation =
                           portfolio.currentValue > 0
                             ? (a.currentValue / portfolio.currentValue) * 100
                             : 0;
 
                         const dividendsTotal = dividendsByAsset.get(a.id) ?? 0;
-                        const assetCostBasis = a.shares * a.averagePrice;
+                        const assetCostBasis = a.openCostBasis;
                         const gainWithDividends = a.gain + dividendsTotal;
                         const gainWithDividendsPercent =
                           assetCostBasis > 0
                             ? (gainWithDividends / assetCostBasis) * 100
                             : 0;
 
-                        const dayGain = (() => {
-                          const pct = Number.isFinite(a.priceChangePercent)
-                            ? a.priceChangePercent
-                            : 0;
-                          if (!Number.isFinite(pct) || pct === 0) return 0;
-                          const previousPrice = a.currentPrice / (1 + pct / 100);
-                          const delta = a.shares * (a.currentPrice - previousPrice);
-                          return Number.isFinite(delta) ? delta : 0;
-                        })();
+                        const dayGain = computeAssetDayGain(a);
 
                         const dayGainPct =
                           a.currentValue > 0 ? (dayGain / a.currentValue) * 100 : 0;

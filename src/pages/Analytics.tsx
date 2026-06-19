@@ -17,6 +17,7 @@ import type { Asset, Dividend, Transaction } from "@/types/financial";
 import { usePrices } from "@/hooks/usePrices";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 import { Blur } from "@/components/ui/blur";
+import { computeAssetPositions } from "@/lib/portfolio-summary";
 
 type HistoryPoint = { t: number; price: number };
 type TickerHistory = { ticker: string; points: HistoryPoint[] };
@@ -78,9 +79,7 @@ function computeNetSharesNow(transactions: Transaction[]): Map<string, number> {
   return computeSharesAtDate(transactions, Date.now());
 }
 
-// Cost basis at a point in time (weighted average, FIFO-compatible):
-// sums buy costs, reduces proportionally on sells
-function computeCostBasisAtDate(transactions: Transaction[], dateMs: number): number {
+function computeOpenCostBasisAtDate(transactions: Transaction[], dateMs: number): number {
   const costByAsset = new Map<string, { qty: number; cost: number }>();
   const sorted = [...transactions].filter((t) => t.date <= dateMs).sort((a, b) => a.date - b.date);
   for (const t of sorted) {
@@ -229,7 +228,7 @@ export default function Analytics() {
 
     return months.map(({ key, t }) => {
       const sharesAt = computeSharesAtDate(transactions, t);
-      const costBasis = computeCostBasisAtDate(transactions, t);
+      const costBasis = computeOpenCostBasisAtDate(transactions, t);
 
       // Total dividends accumulated up to this point
       const totalDividends = dividends
@@ -285,7 +284,9 @@ export default function Analytics() {
       currentValue += shares * sumSafe(price);
     }
 
-    const costBasis = computeCostBasisAtDate(transactions, Date.now());
+    const positionsByAsset = computeAssetPositions(transactions);
+    let costBasis = 0;
+    for (const { openCostBasis } of positionsByAsset.values()) costBasis += sumSafe(openCostBasis);
 
     const totalDividends = dividends.reduce((acc, d) => acc + sumSafe(d.totalValue), 0);
 

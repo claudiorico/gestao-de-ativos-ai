@@ -72,13 +72,13 @@ const Index = () => {
     portfoliosWithAssets.forEach((portfolio) => {
       totalValue += Number.isFinite(portfolio.currentValue) ? portfolio.currentValue : 0;
       totalGain += Number.isFinite(portfolio.totalGain) ? portfolio.totalGain : 0;
+      totalCost += Number.isFinite(portfolio.openCostBasis) ? portfolio.openCostBasis : 0;
 
       portfolio.assets.forEach((asset) => {
         dayGain += computeAssetDayGain(asset);
       });
     });
 
-    totalCost = totalValue - totalGain;
     const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
     const dayGainPercent = totalValue > 0 ? (dayGain / totalValue) * 100 : 0;
 

@@ -31,6 +31,7 @@ import { Blur } from "@/components/ui/blur";
  
  type SortField = "ticker" | "value" | "dayGain" | "dayGainPercent" | "totalGain" | "allocation";
  type SortDirection = "asc" | "desc";
+ const INITIAL_VISIBLE_ROWS = 80;
  
  const typeLabels: Record<string, string> = {
    stock: "Ação",
@@ -48,6 +49,7 @@ import { Blur } from "@/components/ui/blur";
    const [selectedPortfolio, setSelectedPortfolio] = useState<string>("all");
    const [sortField, setSortField] = useState<SortField>("dayGain");
    const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+   const [visibleRows, setVisibleRows] = useState(INITIAL_VISIBLE_ROWS);
  
    // Calculate total value for allocation
    const totalValue = useMemo(() => {
@@ -154,6 +156,11 @@ import { Blur } from "@/components/ui/blur";
      });
      return sorted;
    }, [filteredAssets, sortField, sortDirection]);
+
+   const visibleAssets = useMemo(
+     () => sortedAssets.slice(0, visibleRows),
+     [sortedAssets, visibleRows]
+   );
  
    const toggleSort = (field: SortField) => {
      if (sortField === field) {
@@ -162,6 +169,7 @@ import { Blur } from "@/components/ui/blur";
        setSortField(field);
        setSortDirection("desc");
      }
+     setVisibleRows(INITIAL_VISIBLE_ROWS);
    };
  
    const formatCurrency = (value: number) =>
@@ -294,7 +302,7 @@ import { Blur } from "@/components/ui/blur";
                      </TableCell>
                    </TableRow>
                  ) : (
-                   sortedAssets.map((asset) => (
+                   visibleAssets.map((asset) => (
                      <TableRow
                        key={asset.id}
                        className="cursor-pointer hover:bg-muted/50"
@@ -391,6 +399,15 @@ import { Blur } from "@/components/ui/blur";
                    <Blur>{formatCurrency(sortedAssets.reduce((sum, a) => sum + a.dayGain, 0))}</Blur>
                  </span>
                </div>
+               {visibleRows < sortedAssets.length && (
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   onClick={() => setVisibleRows((current) => current + INITIAL_VISIBLE_ROWS)}
+                 >
+                   Mostrar mais {Math.min(INITIAL_VISIBLE_ROWS, sortedAssets.length - visibleRows)}
+                 </Button>
+               )}
              </div>
            )}
          </div>

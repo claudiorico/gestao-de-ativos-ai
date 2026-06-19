@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { motion } from "framer-motion";
@@ -40,6 +40,7 @@ import {
 } from "@/lib/google-drive";
 import { toast } from "@/hooks/use-toast";
 import { GoogleOAuthTutorial } from "@/components/settings/GoogleOAuthTutorial";
+import { usePortfolios } from "@/hooks/usePortfolios";
 
 type SettingsSection = "profile" | "security" | "appearance" | "data" | "help";
 
@@ -102,6 +103,7 @@ export default function Settings() {
     changeVaultPassword,
   } = useSecureStorage();
   const { user } = useAuthUser();
+  const { portfoliosWithAssets: diagnosticPortfolios } = usePortfolios();
 
   const namespace = user?.uid || 'local';
 
@@ -174,6 +176,38 @@ export default function Settings() {
   const [isBackfillingNames, setIsBackfillingNames] = useState(false);
   const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
   const [isBackfillingShares, setIsBackfillingShares] = useState(false);
+
+  const portfolioDiagnosticRows = useMemo(() => {
+    return diagnosticPortfolios
+      .flatMap((portfolio) =>
+        portfolio.assets.map((asset) => ({
+          id: asset.id,
+          ticker: asset.ticker,
+          name: asset.name,
+          portfolioName: portfolio.name,
+          shares: asset.shares,
+          averagePrice: asset.averagePrice,
+          openCostBasis: asset.openCostBasis,
+          currentPrice: asset.currentPrice,
+          currentValue: asset.currentValue,
+          gain: asset.gain,
+          gainPercent: asset.gainPercent,
+        }))
+      )
+      .sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain));
+  }, [diagnosticPortfolios]);
+
+  const portfolioDiagnosticTotals = useMemo(() => {
+    return diagnosticPortfolios.reduce(
+      (acc, portfolio) => {
+        acc.openCostBasis += Number.isFinite(portfolio.openCostBasis) ? portfolio.openCostBasis : 0;
+        acc.currentValue += Number.isFinite(portfolio.currentValue) ? portfolio.currentValue : 0;
+        acc.gain += Number.isFinite(portfolio.totalGain) ? portfolio.totalGain : 0;
+        return acc;
+      },
+      { openCostBasis: 0, currentValue: 0, gain: 0 }
+    );
+  }, [diagnosticPortfolios]);
 
   useEffect(() => {
     let cancelled = false;
@@ -613,6 +647,11 @@ export default function Settings() {
       syncNow();
     }
   };
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+
+  const formatPercent = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 
   const formatLastSync = (timestamp: number | null) => {
     if (!timestamp) return "Nunca";
@@ -1169,6 +1208,84 @@ export default function Settings() {
             )}
             Recalcular cotas dos proventos
           </Button>
+        </div>
+
+        <div className="pt-4 border-t border-border/50 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Diagnostico de lucro aberto</p>
+            <p className="text-xs text-muted-foreground">
+              Mostra os ativos que mais impactam o Lucro/Prejuizo Total do Dashboard.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Valor atual</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatCurrency(portfolioDiagnosticTotals.currentValue)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Custo aberto</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatCurrency(portfolioDiagnosticTotals.openCostBasis)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Lucro aberto</p>
+              <p
+                className={`text-sm font-semibold tabular-nums ${
+                  portfolioDiagnosticTotals.gain >= 0 ? "text-success" : "text-destructive"
+                }`}
+              >
+                {formatCurrency(portfolioDiagnosticTotals.gain)}
+                {portfolioDiagnosticTotals.openCostBasis > 0
+                  ? ` (${formatPercent((portfolioDiagnosticTotals.gain / portfolioDiagnosticTotals.openCostBasis) * 100)})`
+                  : ""}
+              </p>
+            </div>
+          </div>
+
+          {portfolioDiagnosticRows.length > 0 && (
+            <div className="max-h-80 overflow-auto rounded-lg border border-border/50">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
+                  <tr>
+                    <th className="p-2 text-left font-medium">Ativo</th>
+                    <th className="p-2 text-right font-medium">Qtd</th>
+                    <th className="p-2 text-right font-medium">PM</th>
+                    <th className="p-2 text-right font-medium">Custo</th>
+                    <th className="p-2 text-right font-medium">Preco</th>
+                    <th className="p-2 text-right font-medium">Valor</th>
+                    <th className="p-2 text-right font-medium">Lucro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {portfolioDiagnosticRows.slice(0, 25).map((row) => (
+                    <tr key={row.id} className="border-t border-border/50">
+                      <td className="p-2">
+                        <div className="font-medium text-foreground">{row.ticker}</div>
+                        <div className="text-xs text-muted-foreground">{row.portfolioName}</div>
+                      </td>
+                      <td className="p-2 text-right tabular-nums">{row.shares.toLocaleString("pt-BR")}</td>
+                      <td className="p-2 text-right tabular-nums">{formatCurrency(row.averagePrice)}</td>
+                      <td className="p-2 text-right tabular-nums">{formatCurrency(row.openCostBasis)}</td>
+                      <td className="p-2 text-right tabular-nums">{formatCurrency(row.currentPrice)}</td>
+                      <td className="p-2 text-right tabular-nums">{formatCurrency(row.currentValue)}</td>
+                      <td
+                        className={`p-2 text-right tabular-nums ${
+                          row.gain >= 0 ? "text-success" : "text-destructive"
+                        }`}
+                      >
+                        {formatCurrency(row.gain)}
+                        <div className="text-xs">{formatPercent(row.gainPercent)}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
       </div>

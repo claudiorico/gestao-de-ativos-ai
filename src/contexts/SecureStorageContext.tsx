@@ -112,7 +112,7 @@ const SecureStorageContext = createContext<SecureStorageContextType | null>(null
 
 const METADATA_KEY = 'encryption_metadata';
 const MASTER_DATA_KEY = 'master';
-const PORTFOLIO_DISPLAY_SNAPSHOT_KEY = 'portfolio_display_snapshot_v3';
+const PORTFOLIO_DISPLAY_SNAPSHOT_KEY = 'portfolio_display_snapshot_v4';
 const KEY_VERIFIER_KEY = 'key_verifier';
 const KEY_VERIFIER_VALUE = 'investpro-vault-key-v1';
 const RECORD_DATA_PREFIX = 'record:';
