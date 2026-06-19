@@ -37,6 +37,25 @@ interface VaultUnlockProps {
   onReset: () => void;
 }
 
+type IdleCallbackHandle = ReturnType<typeof setTimeout> | number;
+
+function scheduleIdleTask(callback: () => void): IdleCallbackHandle {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    return window.requestIdleCallback(callback, { timeout: 3000 });
+  }
+
+  return setTimeout(callback, 750);
+}
+
+function cancelIdleTask(handle: IdleCallbackHandle) {
+  if (typeof window !== 'undefined' && 'cancelIdleCallback' in window && typeof handle === 'number') {
+    window.cancelIdleCallback(handle);
+    return;
+  }
+
+  clearTimeout(handle as ReturnType<typeof setTimeout>);
+}
+
 export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
   const { unlockVault, wipeAllData, error } = useSecureStorage();
   const { user } = useAuthUser();
@@ -57,15 +76,21 @@ export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
   const [enrollAfterUnlock, setEnrollAfterUnlock] = useState(false);
 
   useEffect(() => {
-    isPersistentStorageEnabled().then(setPersisted).catch(() => setPersisted(null));
+    const handle = scheduleIdleTask(() => {
+      isPersistentStorageEnabled().then(setPersisted).catch(() => setPersisted(null));
+    });
+    return () => cancelIdleTask(handle);
   }, []);
 
   useEffect(() => {
     let active = true;
-    isBiometricSupported().then((ok) => active && setBioSupported(ok)).catch(() => {});
-    setBioEnrolled(hasBiometricEnrolled(namespace));
+    const handle = scheduleIdleTask(() => {
+      isBiometricSupported().then((ok) => active && setBioSupported(ok)).catch(() => {});
+      setBioEnrolled(hasBiometricEnrolled(namespace));
+    });
     return () => {
       active = false;
+      cancelIdleTask(handle);
     };
   }, [namespace]);
 

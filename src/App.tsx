@@ -23,6 +23,9 @@ import {
   ImpostoRendaPage,
   RebalanceamentoCarteiraPage,
 } from "./pages/FeatureSeoPage";
+import { installPerformanceMonitor } from "./lib/performance-monitor";
+
+installPerformanceMonitor();
 
 // Rotas protegidas: lazy-loaded para manter o bundle inicial pequeno
 // (só carregam após login + desbloqueio do cofre, então o code-split não atrasa a home pública)

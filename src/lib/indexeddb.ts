@@ -142,9 +142,6 @@ export function openDatabase(): Promise<IDBDatabase> {
       dbInstance = null;
     }
 
-    // Request persistent storage first
-    requestPersistentStorage().catch(console.error);
-
     const request = indexedDB.open(dbName, DB_VERSION);
 
     request.onerror = () => {
