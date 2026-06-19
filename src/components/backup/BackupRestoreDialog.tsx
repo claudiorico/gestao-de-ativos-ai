@@ -30,7 +30,6 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { useSecureStorage } from '@/contexts/SecureStorageContext';
-import { useAutoSync } from '@/hooks/use-auto-sync';
 import {
   downloadBackupFile,
   readBackupFile,
@@ -62,7 +61,6 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { exportEncryptedBackup, importEncryptedBackup, isUnlocked } = useSecureStorage();
-  const { syncNow } = useAutoSync();
 
   const [syncStatus, setSyncStatus] = useState(getSyncStatus());
   const [isConnected, setIsConnected] = useState(isGoogleDriveConnected());
@@ -270,10 +268,7 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
   const handleToggleAutoSync = (enabled: boolean) => {
     updateSyncStatus({ autoSyncEnabled: enabled });
     setSyncStatus(getSyncStatus());
-
-    if (enabled && isConnected) {
-      syncNow();
-    }
+    window.dispatchEvent(new Event('gdrive-sync-status-changed'));
   };
   
   const formatLastSync = (timestamp: number | null) => {

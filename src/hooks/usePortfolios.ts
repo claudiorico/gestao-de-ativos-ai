@@ -29,8 +29,19 @@ interface LoadedPortfolioData {
 
 type IdleCallbackHandle = ReturnType<typeof setTimeout> | number;
 
-function getPricedTickers(assets: Asset[]) {
-  return assets.filter((a) => isPricedAssetType(a.type)).map((a) => a.ticker);
+function getPricedTickers(
+  assets: Asset[],
+  positionsByAssetId?: Map<string, { shares: number }>
+) {
+  return assets
+    .filter((asset) => {
+      if (!isPricedAssetType(asset.type)) return false;
+
+      const position = positionsByAssetId?.get(asset.id);
+      const shares = position ? position.shares : asset.shares;
+      return Number.isFinite(shares) && shares > 1e-8;
+    })
+    .map((a) => a.ticker);
 }
 
 function getQuoteForTicker(quotes: Record<string, Quote | undefined>, ticker: string) {
@@ -143,9 +154,11 @@ export function usePortfolios() {
 
       if (!opts?.silent && hasDisplayDataRef.current) setIsLoading(false);
 
-      const tickers = getPricedTickers(loadedAssets);
+      const loadedPositionsByAssetId = computeAssetPositions(loadedTransactions);
+      const tickers = getPricedTickers(loadedAssets, loadedPositionsByAssetId);
       if (tickers.length > 0) {
-        void fetchQuotes(tickers, { force: opts?.forceQuotes === true });
+        const fetch = () => void fetchQuotes(tickers, { force: opts?.forceQuotes === true });
+        scheduleIdleTask(fetch);
       }
     } catch (err) {
       setError('Erro ao carregar portfólios');
@@ -179,8 +192,8 @@ export function usePortfolios() {
   }, [computedPositionsByAssetId, portfolioData, quotes]);
 
   const pricedTickers = useMemo(
-    () => (portfolioData ? getPricedTickers(portfolioData.assets) : []),
-    [portfolioData]
+    () => (portfolioData ? getPricedTickers(portfolioData.assets, computedPositionsByAssetId) : []),
+    [computedPositionsByAssetId, portfolioData]
   );
 
   const hasQuoteDataForSnapshot = useMemo(() => {
@@ -340,23 +353,27 @@ export function usePortfolios() {
     if (!isUnlocked || allAssets.length === 0) return;
 
     const interval = setInterval(() => {
-      const tickers = getPricedTickers(allAssets);
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+      const tickers = getPricedTickers(allAssets, computedPositionsByAssetId);
       if (tickers.length > 0) {
-        fetchQuotes(tickers);
+        scheduleIdleTask(() => {
+          void fetchQuotes(tickers);
+        });
       }
-    }, 5 * 60 * 1000);
+    }, 15 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [isUnlocked, allAssets, fetchQuotes]);
+  }, [computedPositionsByAssetId, isUnlocked, allAssets, fetchQuotes]);
 
   const refreshQuotesNow = useCallback(async () => {
     if (!isUnlocked) return;
 
-    const tickers = getPricedTickers(allAssets);
+    const tickers = getPricedTickers(allAssets, computedPositionsByAssetId);
     if (tickers.length > 0) {
       await fetchQuotes(tickers, { force: true });
     }
-  }, [isUnlocked, allAssets, fetchQuotes]);
+  }, [computedPositionsByAssetId, isUnlocked, allAssets, fetchQuotes]);
 
   return {
     portfolios,

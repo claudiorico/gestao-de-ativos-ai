@@ -16,11 +16,31 @@ import {
 import { updateSyncStatus, getSyncStatus } from '@/lib/backup';
 import { toast } from '@/hooks/use-toast';
 
-const DEBOUNCE_MS = 5000; // Wait 5 seconds after last change before syncing
+const DEBOUNCE_MS = 30_000;
+
+type IdleCallbackHandle = ReturnType<typeof setTimeout> | number;
+
+function scheduleIdleTask(callback: () => void): IdleCallbackHandle {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    return window.requestIdleCallback(callback, { timeout: 10_000 });
+  }
+
+  return setTimeout(callback, 1000);
+}
+
+function cancelIdleTask(handle: IdleCallbackHandle) {
+  if (typeof window !== 'undefined' && 'cancelIdleCallback' in window && typeof handle === 'number') {
+    window.cancelIdleCallback(handle);
+    return;
+  }
+
+  clearTimeout(handle as ReturnType<typeof setTimeout>);
+}
 
 export function useAutoSync() {
   const { isUnlocked, exportEncryptedBackup } = useSecureStorage();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const idleRef = useRef<IdleCallbackHandle | null>(null);
   const isSyncingRef = useRef(false);
 
   // Evita loop de tentativas quando o navegador exige gesto do usuário (popup bloqueado).
@@ -131,7 +151,11 @@ export function useAutoSync() {
     }
 
     debounceRef.current = setTimeout(() => {
-      performSync();
+      if (idleRef.current) cancelIdleTask(idleRef.current);
+      idleRef.current = scheduleIdleTask(() => {
+        idleRef.current = null;
+        void performSync();
+      });
     }, DEBOUNCE_MS);
   }, [performSync]);
 
@@ -147,6 +171,10 @@ export function useAutoSync() {
       window.removeEventListener('vault-data-changed', handleDataChange);
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
+      }
+      if (idleRef.current) {
+        cancelIdleTask(idleRef.current);
+        idleRef.current = null;
       }
     };
   }, [scheduleSync]);
