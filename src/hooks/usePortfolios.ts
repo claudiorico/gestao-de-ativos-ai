@@ -9,9 +9,6 @@ import { usePrices, type Quote } from '@/hooks/usePrices';
 import type { Asset, Portfolio, Transaction } from '@/types/financial';
 import {
   buildPortfolioDataSignature,
-  computeAssetPositions,
-  computePortfolioSummaries,
-  isPricedAssetType,
   type AssetWithPrice,
   type PortfolioDisplaySnapshot,
   type PortfolioWithAssets,
@@ -29,19 +26,11 @@ interface LoadedPortfolioData {
 
 type IdleCallbackHandle = ReturnType<typeof setTimeout> | number;
 
-function getPricedTickers(
-  assets: Asset[],
-  positionsByAssetId?: Map<string, { shares: number }>
-) {
-  return assets
-    .filter((asset) => {
-      if (!isPricedAssetType(asset.type)) return false;
-
-      const position = positionsByAssetId?.get(asset.id);
-      const shares = position ? position.shares : asset.shares;
-      return Number.isFinite(shares) && shares > 1e-8;
-    })
-    .map((a) => a.ticker);
+interface PortfolioSummaryWorkerResponse {
+  requestId: number;
+  portfoliosWithAssets: PortfolioWithAssets[];
+  pricedTickers: string[];
+  hasQuoteData: boolean;
 }
 
 function getQuoteForTicker(quotes: Record<string, Quote | undefined>, ticker: string) {
@@ -94,6 +83,10 @@ export function usePortfolios() {
   const hasDisplayDataRef = useRef(false);
   const snapshotSaveHandleRef = useRef<IdleCallbackHandle | null>(null);
   const lastSavedSnapshotKeyRef = useRef<string | null>(null);
+  const calculationWorkerRef = useRef<Worker | null>(null);
+  const calculationRequestIdRef = useRef(0);
+  const forceQuotesOnNextCalculationRef = useRef(false);
+  const [pricedTickers, setPricedTickers] = useState<string[]>([]);
 
   const portfolios = useMemo<Portfolio[]>(() => {
     if (portfolioData) return portfolioData.portfolios;
@@ -154,12 +147,7 @@ export function usePortfolios() {
 
       if (!opts?.silent && hasDisplayDataRef.current) setIsLoading(false);
 
-      const loadedPositionsByAssetId = computeAssetPositions(loadedTransactions);
-      const tickers = getPricedTickers(loadedAssets, loadedPositionsByAssetId);
-      if (tickers.length > 0) {
-        const fetch = () => void fetchQuotes(tickers, { force: opts?.forceQuotes === true });
-        scheduleIdleTask(fetch);
-      }
+      if (opts?.forceQuotes) forceQuotesOnNextCalculationRef.current = true;
     } catch (err) {
       setError('Erro ao carregar portfólios');
       console.error('Error loading portfolios:', err);
@@ -175,83 +163,90 @@ export function usePortfolios() {
     isUnlocked,
   ]);
 
-  const computedPositionsByAssetId = useMemo(() => {
-    return portfolioData ? computeAssetPositions(portfolioData.transactions) : undefined;
-  }, [portfolioData]);
+  useEffect(() => {
+    if (!portfolioData) return;
 
-  const calculatedPortfolios = useMemo(() => {
-    if (!portfolioData) return null;
+    const requestId = ++calculationRequestIdRef.current;
 
-    return computePortfolioSummaries({
+    if (!calculationWorkerRef.current) {
+      calculationWorkerRef.current = new Worker(
+        new URL('../workers/portfolio-summary.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
+    }
+
+    const worker = calculationWorkerRef.current;
+    worker.onmessage = (event: MessageEvent<PortfolioSummaryWorkerResponse>) => {
+      const result = event.data;
+      if (result.requestId !== calculationRequestIdRef.current) return;
+
+      setPricedTickers(result.pricedTickers);
+      setPortfoliosWithAssets(result.portfoliosWithAssets);
+      hasDisplayDataRef.current = true;
+      setIsLoading(false);
+
+      const shouldForceQuotes = forceQuotesOnNextCalculationRef.current;
+      forceQuotesOnNextCalculationRef.current = false;
+
+      if (!result.hasQuoteData && result.pricedTickers.length > 0) {
+        scheduleIdleTask(() => {
+          void fetchQuotes(result.pricedTickers, { force: shouldForceQuotes });
+        });
+        return;
+      }
+
+      const snapshot: PortfolioDisplaySnapshot = {
+        portfoliosWithAssets: toLightweightSnapshotPortfolios(result.portfoliosWithAssets),
+        dataSignature: portfolioData.dataSignature,
+        quotesUpdatedAt: quotesLastUpdated?.toISOString() ?? null,
+        hasQuoteData: true,
+        calculatedAt: Date.now(),
+      };
+
+      const saveKey = `${snapshot.dataSignature}:${snapshot.quotesUpdatedAt ?? 'no-quotes'}`;
+      if (lastSavedSnapshotKeyRef.current === saveKey) return;
+
+      if (snapshotSaveHandleRef.current) {
+        cancelIdleTask(snapshotSaveHandleRef.current);
+        snapshotSaveHandleRef.current = null;
+      }
+
+      snapshotSaveHandleRef.current = scheduleIdleTask(() => {
+        snapshotSaveHandleRef.current = null;
+        savePortfolioDisplaySnapshot(snapshot)
+          .then(() => {
+            lastSavedSnapshotKeyRef.current = saveKey;
+          })
+          .catch((err) => {
+            console.warn('[usePortfolios] Failed to save display snapshot', err);
+          });
+      });
+    };
+
+    worker.onerror = (err) => {
+      console.error('[usePortfolios] Portfolio worker failed', err);
+      setError('Erro ao calcular portfÃ³lio');
+      if (!hasDisplayDataRef.current) setIsLoading(false);
+    };
+
+    worker.postMessage({
+      requestId,
       portfolios: portfolioData.portfolios,
       assets: portfolioData.assets,
       transactions: portfolioData.transactions,
-      positionsByAssetId: computedPositionsByAssetId,
-      quotes: quotes as Record<string, Quote | undefined>,
+      quotes,
     });
-  }, [computedPositionsByAssetId, portfolioData, quotes]);
-
-  const pricedTickers = useMemo(
-    () => (portfolioData ? getPricedTickers(portfolioData.assets, computedPositionsByAssetId) : []),
-    [computedPositionsByAssetId, portfolioData]
-  );
-
-  const hasQuoteDataForSnapshot = useMemo(() => {
-    if (pricedTickers.length === 0) return true;
-    return pricedTickers.every((ticker) => !!getQuoteForTicker(quotes, ticker));
-  }, [pricedTickers, quotes]);
-
-  useEffect(() => {
-    if (!portfolioData || !calculatedPortfolios) return;
-
-    if (!hasQuoteDataForSnapshot) {
-      if (!hasDisplayDataRef.current) setIsLoading(true);
-      return;
-    }
-
-    setPortfoliosWithAssets(calculatedPortfolios);
-    hasDisplayDataRef.current = true;
-    setIsLoading(false);
-
-    const snapshot: PortfolioDisplaySnapshot = {
-      portfoliosWithAssets: toLightweightSnapshotPortfolios(calculatedPortfolios),
-      dataSignature: portfolioData.dataSignature,
-      quotesUpdatedAt: quotesLastUpdated?.toISOString() ?? null,
-      hasQuoteData: true,
-      calculatedAt: Date.now(),
-    };
-
-    const saveKey = `${snapshot.dataSignature}:${snapshot.quotesUpdatedAt ?? 'no-quotes'}`;
-    if (lastSavedSnapshotKeyRef.current === saveKey) return;
-
-    if (snapshotSaveHandleRef.current) {
-      cancelIdleTask(snapshotSaveHandleRef.current);
-      snapshotSaveHandleRef.current = null;
-    }
-
-    snapshotSaveHandleRef.current = scheduleIdleTask(() => {
-      snapshotSaveHandleRef.current = null;
-      savePortfolioDisplaySnapshot(snapshot)
-        .then(() => {
-          lastSavedSnapshotKeyRef.current = saveKey;
-        })
-        .catch((err) => {
-          console.warn('[usePortfolios] Failed to save display snapshot', err);
-        });
-    });
-  }, [
-    calculatedPortfolios,
-    hasQuoteDataForSnapshot,
-    portfolioData,
-    quotesLastUpdated,
-    savePortfolioDisplaySnapshot,
-  ]);
+  }, [fetchQuotes, portfolioData, quotes, quotesLastUpdated, savePortfolioDisplaySnapshot]);
 
   useEffect(() => {
     return () => {
       if (snapshotSaveHandleRef.current) {
         cancelIdleTask(snapshotSaveHandleRef.current);
         snapshotSaveHandleRef.current = null;
+      }
+      if (calculationWorkerRef.current) {
+        calculationWorkerRef.current.terminate();
+        calculationWorkerRef.current = null;
       }
     };
   }, []);
@@ -355,25 +350,23 @@ export function usePortfolios() {
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
 
-      const tickers = getPricedTickers(allAssets, computedPositionsByAssetId);
-      if (tickers.length > 0) {
+      if (pricedTickers.length > 0) {
         scheduleIdleTask(() => {
-          void fetchQuotes(tickers);
+          void fetchQuotes(pricedTickers);
         });
       }
     }, 15 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [computedPositionsByAssetId, isUnlocked, allAssets, fetchQuotes]);
+  }, [isUnlocked, allAssets.length, fetchQuotes, pricedTickers]);
 
   const refreshQuotesNow = useCallback(async () => {
     if (!isUnlocked) return;
 
-    const tickers = getPricedTickers(allAssets, computedPositionsByAssetId);
-    if (tickers.length > 0) {
-      await fetchQuotes(tickers, { force: true });
+    if (pricedTickers.length > 0) {
+      await fetchQuotes(pricedTickers, { force: true });
     }
-  }, [computedPositionsByAssetId, isUnlocked, allAssets, fetchQuotes]);
+  }, [isUnlocked, fetchQuotes, pricedTickers]);
 
   return {
     portfolios,
