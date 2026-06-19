@@ -1,4 +1,5 @@
 export type RebalanceMode = "REBALANCE_ONLY" | "WITH_CONTRIBUTION";
+export type ContributionStrategy = "MAX_CORRECTION" | "PROPORTIONAL";
 
 export type RebalanceInputAsset = {
   id: string;
@@ -12,6 +13,7 @@ export type RebalanceInput = {
   assets: RebalanceInputAsset[];
   availableCash: number;
   mode: RebalanceMode;
+  contributionStrategy?: ContributionStrategy;
 };
 
 export type RebalanceSuggestion = {
@@ -28,6 +30,7 @@ export type RebalanceOutput = {
 };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+const MAX_PROPORTIONAL_ASSETS = 5;
 
 const normalizeStep = (step?: number) => {
   const s = Number(step);
@@ -75,6 +78,109 @@ function computeDiffs(params: {
   });
 }
 
+function buyMaxCorrection(params: {
+  assets: RebalanceInputAsset[];
+  quantities: Record<string, number>;
+  targetPortfolioValue: number;
+  getRemainingCash: () => number;
+  setRemainingCash: (value: number) => void;
+  canBuyAny: () => boolean;
+}) {
+  const { assets, quantities, targetPortfolioValue, getRemainingCash, setRemainingCash, canBuyAny } = params;
+  const MAX_STEPS = 10_000;
+  let steps = 0;
+
+  while (steps < MAX_STEPS) {
+    steps++;
+
+    const remainingCash = getRemainingCash();
+    const diffs = computeDiffs({ assets, quantities, targetPortfolioValue });
+    const affordable = diffs.filter((d) => remainingCash >= d.currentPrice * d.lotSize);
+    const eligibleBuys = affordable
+      .filter((d) => d.difference > 0)
+      .sort((a, b) => {
+        const aRel = a.targetValue > 0 ? a.difference / a.targetValue : 0;
+        const bRel = b.targetValue > 0 ? b.difference / b.targetValue : 0;
+        if (bRel !== aRel) return bRel - aRel;
+        return b.difference - a.difference;
+      });
+
+    const pick = eligibleBuys[0] as (typeof diffs)[number] | undefined;
+    if (!pick) break;
+
+    const maxByCash = floorToStep(remainingCash / pick.currentPrice, pick.lotSize);
+    const maxByDiff = pick.difference > 0 ? floorToStep(pick.difference / pick.currentPrice, pick.lotSize) : maxByCash;
+    const buyQty = Math.max(0, Math.min(maxByCash, maxByDiff));
+
+    if (buyQty <= 0) break;
+
+    quantities[pick.id] = (quantities[pick.id] ?? 0) + buyQty;
+    setRemainingCash(Math.max(0, remainingCash - pick.currentPrice * buyQty));
+
+    if (!canBuyAny()) break;
+  }
+}
+
+function buyProportionally(params: {
+  assets: RebalanceInputAsset[];
+  quantities: Record<string, number>;
+  targetPortfolioValue: number;
+  getRemainingCash: () => number;
+  setRemainingCash: (value: number) => void;
+  canBuyAny: () => boolean;
+}) {
+  const { assets, quantities, targetPortfolioValue, getRemainingCash, setRemainingCash, canBuyAny } = params;
+  const MAX_STEPS = 10_000;
+  let steps = 0;
+  let selectedAssetIds: Set<string> | null = null;
+
+  while (steps < MAX_STEPS) {
+    steps++;
+
+    const cashAtStart = getRemainingCash();
+    const diffs = computeDiffs({ assets, quantities, targetPortfolioValue });
+    const allEligibleBuys = diffs
+      .filter((d) => d.difference > 0 && cashAtStart >= d.currentPrice * d.lotSize)
+      .sort((a, b) => {
+        const aRel = a.targetValue > 0 ? a.difference / a.targetValue : 0;
+        const bRel = b.targetValue > 0 ? b.difference / b.targetValue : 0;
+        if (bRel !== aRel) return bRel - aRel;
+        return b.difference - a.difference;
+      });
+
+    if (!selectedAssetIds) {
+      selectedAssetIds = new Set(allEligibleBuys.slice(0, MAX_PROPORTIONAL_ASSETS).map((d) => d.id));
+    }
+
+    const eligibleBuys = allEligibleBuys.filter((d) => selectedAssetIds.has(d.id));
+
+    const totalGap = eligibleBuys.reduce((acc, d) => acc + d.difference, 0);
+    if (eligibleBuys.length === 0 || totalGap <= 0) break;
+
+    let boughtSomething = false;
+
+    for (const pick of eligibleBuys) {
+      const remainingCash = getRemainingCash();
+      if (remainingCash < pick.currentPrice * pick.lotSize) continue;
+
+      const proportionalCash = cashAtStart * (pick.difference / totalGap);
+      const maxByCash = floorToStep(remainingCash / pick.currentPrice, pick.lotSize);
+      const maxByDiff = floorToStep(pick.difference / pick.currentPrice, pick.lotSize);
+      const proportionalQty = floorToStep(proportionalCash / pick.currentPrice, pick.lotSize);
+      const desiredQty = proportionalQty > 0 ? proportionalQty : pick.lotSize;
+      const buyQty = Math.max(0, Math.min(desiredQty, maxByCash, maxByDiff));
+
+      if (buyQty <= 0) continue;
+
+      quantities[pick.id] = (quantities[pick.id] ?? 0) + buyQty;
+      setRemainingCash(Math.max(0, remainingCash - pick.currentPrice * buyQty));
+      boughtSomething = true;
+    }
+
+    if (!boughtSomething || !canBuyAny()) break;
+  }
+}
+
 /**
  * Motor determinístico, incremental e stateful (consciente das compras/vendas simuladas dentro do ciclo).
  */
@@ -107,6 +213,7 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
 
   const availableCash = Math.max(0, input.availableCash || 0);
   const mode = input.mode;
+  const contributionStrategy: ContributionStrategy = input.contributionStrategy ?? "MAX_CORRECTION";
 
   let remainingCash = mode === "WITH_CONTRIBUTION" ? availableCash : 0;
 
@@ -120,43 +227,21 @@ export function rebalanceAssets(input: RebalanceInput): RebalanceOutput {
     });
 
   if (mode === "WITH_CONTRIBUTION") {
-    // Loop principal incremental: compra em blocos para evitar loops enormes (ex.: cripto com passo muito pequeno)
-    // Guardrail para evitar loops infinitos por floating point
-    const MAX_STEPS = 10_000;
-    let steps = 0;
+    const buyParams = {
+      assets,
+      quantities,
+      targetPortfolioValue,
+      getRemainingCash: () => remainingCash,
+      setRemainingCash: (value: number) => {
+        remainingCash = value;
+      },
+      canBuyAny,
+    };
 
-    while (steps < MAX_STEPS) {
-      steps++;
-
-       const diffs = computeDiffs({ assets, quantities, targetPortfolioValue });
-
-       // Elegíveis: cabem pelo menos 1 lote no caixa
-       const affordable = diffs.filter((d) => remainingCash >= d.currentPrice * d.lotSize);
-
-       // Compra somente ativos subalocados (difference > 0). Se não houver, encerra.
-       const eligibleBuys = affordable
-         .filter((d) => d.difference > 0)
-         .sort((a, b) => {
-           const aRel = a.targetValue > 0 ? a.difference / a.targetValue : 0;
-           const bRel = b.targetValue > 0 ? b.difference / b.targetValue : 0;
-           if (bRel !== aRel) return bRel - aRel;
-           return b.difference - a.difference;
-         });
-
-       const pick = eligibleBuys[0] as (typeof diffs)[number] | undefined;
-       if (!pick) break;
-
-      // Compra o máximo possível (respeitando lote) para este ativo na iteração
-      const maxByCash = floorToStep(remainingCash / pick.currentPrice, pick.lotSize);
-      const maxByDiff = pick.difference > 0 ? floorToStep(pick.difference / pick.currentPrice, pick.lotSize) : maxByCash;
-      const buyQty = Math.max(0, Math.min(maxByCash, maxByDiff));
-
-      if (buyQty <= 0) break;
-
-      quantities[pick.id] = (quantities[pick.id] ?? 0) + buyQty;
-      remainingCash = Math.max(0, remainingCash - pick.currentPrice * buyQty);
-
-      if (!canBuyAny()) break;
+    if (contributionStrategy === "PROPORTIONAL") {
+      buyProportionally(buyParams);
+    } else {
+      buyMaxCorrection(buyParams);
     }
   } else {
     // REBALANCE_ONLY: vende sobrealocados para comprar subalocados (patrimônio total constante)

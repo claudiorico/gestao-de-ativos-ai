@@ -35,6 +35,91 @@ describe("rebalancing-engine — WITH_CONTRIBUTION", () => {
     expect(b?.action).toBe("HOLD");
   });
 
+  it("MAX_CORRECTION preserva a compra concentrada no maior gap", () => {
+    const result = rebalanceAssets({
+      assets: [
+        { id: "A", targetPercent: 0.7, currentQuantity: 0, currentPrice: 5 },
+        { id: "B", targetPercent: 0.3, currentQuantity: 0, currentPrice: 5 },
+      ],
+      availableCash: 10,
+      mode: "WITH_CONTRIBUTION",
+      contributionStrategy: "MAX_CORRECTION",
+    });
+    const a = result.suggestions.find((s) => s.assetId === "A");
+    const b = result.suggestions.find((s) => s.assetId === "B");
+    expect(a?.quantity).toBe(1);
+    expect(b?.action).toBe("HOLD");
+  });
+
+  it("PROPORTIONAL distribui o aporte entre múltiplos ativos subalocados", () => {
+    const result = rebalanceAssets({
+      assets: [
+        { id: "A", targetPercent: 0.5, currentQuantity: 8, currentPrice: 10 },
+        { id: "B", targetPercent: 0.3, currentQuantity: 1, currentPrice: 10 },
+        { id: "C", targetPercent: 0.2, currentQuantity: 1, currentPrice: 10 },
+      ],
+      availableCash: 30,
+      mode: "WITH_CONTRIBUTION",
+      contributionStrategy: "PROPORTIONAL",
+    });
+    const a = result.suggestions.find((s) => s.assetId === "A");
+    const b = result.suggestions.find((s) => s.assetId === "B");
+    const c = result.suggestions.find((s) => s.assetId === "C");
+    expect(a?.action).toBe("HOLD");
+    expect(b?.quantity).toBe(2);
+    expect(c?.quantity).toBe(1);
+    expect(result.remainingCash).toBe(0);
+  });
+
+  it("PROPORTIONAL limita a distribuição aos 5 maiores gaps compráveis", () => {
+    const result = rebalanceAssets({
+      assets: [
+        { id: "A", targetPercent: 0.05, currentQuantity: 10, currentPrice: 10 },
+        { id: "B", targetPercent: 0.20, currentQuantity: 0, currentPrice: 10 },
+        { id: "C", targetPercent: 0.18, currentQuantity: 0, currentPrice: 10 },
+        { id: "D", targetPercent: 0.16, currentQuantity: 0, currentPrice: 10 },
+        { id: "E", targetPercent: 0.14, currentQuantity: 0, currentPrice: 10 },
+        { id: "F", targetPercent: 0.12, currentQuantity: 0, currentPrice: 10 },
+        { id: "G", targetPercent: 0.10, currentQuantity: 0, currentPrice: 10 },
+        { id: "H", targetPercent: 0.05, currentQuantity: 0, currentPrice: 10 },
+      ],
+      availableCash: 70,
+      mode: "WITH_CONTRIBUTION",
+      contributionStrategy: "PROPORTIONAL",
+    });
+    const bought = result.suggestions.filter((s) => s.action === "BUY" && s.quantity > 0);
+    expect(bought.length).toBeLessThanOrEqual(5);
+    expect(bought.some((s) => s.assetId === "G")).toBe(false);
+    expect(bought.some((s) => s.assetId === "H")).toBe(false);
+  });
+
+  it("PROPORTIONAL respeita lotSize e devolve caixa quando não há lote comprável", () => {
+    const result = rebalanceAssets({
+      assets: [{ id: "A", targetPercent: 1, currentQuantity: 0, currentPrice: 50, lotSize: 10 }],
+      availableCash: 499,
+      mode: "WITH_CONTRIBUTION",
+      contributionStrategy: "PROPORTIONAL",
+    });
+    expect(result.suggestions[0]?.action).toBe("HOLD");
+    expect(result.remainingCash).toBe(499);
+  });
+
+  it("PROPORTIONAL não compra ativos sobrealocados", () => {
+    const result = rebalanceAssets({
+      assets: [
+        { id: "A", targetPercent: 0.5, currentQuantity: 8, currentPrice: 10 },
+        { id: "B", targetPercent: 0.5, currentQuantity: 2, currentPrice: 10 },
+      ],
+      availableCash: 30,
+      mode: "WITH_CONTRIBUTION",
+      contributionStrategy: "PROPORTIONAL",
+    });
+    const a = result.suggestions.find((s) => s.assetId === "A");
+    const b = result.suggestions.find((s) => s.assetId === "B");
+    expect(a?.action).not.toBe("BUY");
+    expect(b?.action).toBe("BUY");
+  });
+
   it("respeita lotSize e devolve o troco no remainingCash", () => {
     const result = rebalanceAssets({
       assets: [{ id: "A", targetPercent: 1, currentQuantity: 0, currentPrice: 10, lotSize: 100 }],

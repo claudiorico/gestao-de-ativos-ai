@@ -21,9 +21,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { usePortfolios } from "@/hooks/usePortfolios";
-import { rebalanceAssets, type RebalanceMode } from "@/lib/rebalancing-engine";
+import { rebalanceAssets, type ContributionStrategy, type RebalanceMode } from "@/lib/rebalancing-engine";
 import { toast } from "@/hooks/use-toast";
 
 const formatCurrency = (value: number) =>
@@ -78,6 +79,7 @@ type FlatAsset = {
 type PersistedBalancingState = {
   portfolioIds: string[]; // vazio = todas
   investmentAmount: string;
+  contributionStrategy?: ContributionStrategy;
   assetsSignature: string;
   mode: RebalanceMode;
   suggestions: Array<{ assetId: string; action: SuggestionAction; quantity: number }>;
@@ -85,12 +87,13 @@ type PersistedBalancingState = {
   updatedAt: number;
 };
 
-const STORAGE_KEY = "balancing:last_state:v2";
+const STORAGE_KEY = "balancing:last_state:v3";
 
 export default function Balancing() {
   const navigate = useNavigate();
 
   const [investmentAmount, setInvestmentAmount] = useState("5000");
+  const [contributionStrategy, setContributionStrategy] = useState<ContributionStrategy>("PROPORTIONAL");
   const [selectedPortfolioIds, setSelectedPortfolioIds] = useState<string[]>([]); // vazio = todas
   const [lastCalculated, setLastCalculated] = useState<Date | null>(null);
   const [rebalancedAssets, setRebalancedAssets] = useState<RebalancedAssetRow[]>([]);
@@ -323,6 +326,7 @@ export default function Balancing() {
         assets: engineAssets,
         availableCash: amount,
         mode,
+        contributionStrategy: mode === "WITH_CONTRIBUTION" ? contributionStrategy : undefined,
       });
 
       const summary = result.suggestions.reduce(
@@ -371,6 +375,7 @@ export default function Balancing() {
       const persisted: PersistedBalancingState = {
         portfolioIds: [...selectedPortfolioIds].sort(),
         investmentAmount,
+        contributionStrategy,
         assetsSignature,
         mode,
         suggestions: result.suggestions.map((s) => ({
@@ -429,6 +434,9 @@ export default function Balancing() {
       if (typeof saved.investmentAmount === "string") {
         setInvestmentAmount(saved.investmentAmount);
       }
+      if (saved.contributionStrategy === "MAX_CORRECTION" || saved.contributionStrategy === "PROPORTIONAL") {
+        setContributionStrategy(saved.contributionStrategy);
+      }
     } catch {
       // ignore
     }
@@ -442,6 +450,7 @@ export default function Balancing() {
 
       // Só reaplica se o "estado dos ativos" não mudou (evita reaplicar sugestões antigas)
       if (saved.assetsSignature !== assetsSignature) return;
+      if ((saved.contributionStrategy ?? "PROPORTIONAL") !== contributionStrategy) return;
 
       const byId = new Map(saved.suggestions.map((s) => [s.assetId, s] as const));
       const rows: RebalancedAssetRow[] = allAssets.map((asset) => {
@@ -471,7 +480,7 @@ export default function Balancing() {
     } catch {
       // ignore
     }
-  }, [assetsSignature, allAssets]);
+  }, [assetsSignature, allAssets, contributionStrategy]);
 
   // Mantém o último cálculo ao navegar entre abas/páginas.
   // Só limpa quando o usuário muda inputs (carteiras/valor do aporte) e ainda não recalculou.
@@ -483,7 +492,8 @@ export default function Balancing() {
       const saved = JSON.parse(raw) as PersistedBalancingState;
       const sameInputs =
         (saved.portfolioIds ?? []).sort().join(",") === [...selectedPortfolioIds].sort().join(",") &&
-        saved.investmentAmount === investmentAmount;
+        saved.investmentAmount === investmentAmount &&
+        (saved.contributionStrategy ?? "PROPORTIONAL") === contributionStrategy;
 
       if (!sameInputs) {
         setRebalancedAssets([]);
@@ -494,7 +504,7 @@ export default function Balancing() {
       // ignore
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPortfolioIds, investmentAmount]);
+  }, [selectedPortfolioIds, investmentAmount, contributionStrategy]);
 
   if (isLoading) {
     return (
@@ -664,6 +674,38 @@ export default function Balancing() {
               </Button>
             </div>
           </div>
+
+          {currentMode === "WITH_CONTRIBUTION" && (
+            <div className="mt-4 rounded-lg border border-border bg-background/50 p-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Estratégia do aporte</p>
+                  <p className="text-xs text-muted-foreground">
+                    {contributionStrategy === "PROPORTIONAL"
+                      ? "Divide o aporte entre até 5 ativos mais abaixo do alvo."
+                      : "Prioriza o maior desvio até aproximar do alvo."}
+                  </p>
+                </div>
+                <ToggleGroup
+                  type="single"
+                  value={contributionStrategy}
+                  onValueChange={(value) => {
+                    if (value === "PROPORTIONAL" || value === "MAX_CORRECTION") {
+                      setContributionStrategy(value);
+                    }
+                  }}
+                  className="justify-start rounded-lg bg-muted/60 p-1 lg:justify-center"
+                >
+                  <ToggleGroupItem value="PROPORTIONAL" className="h-9 px-3 text-xs sm:text-sm">
+                    Distribuição equilibrada
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="MAX_CORRECTION" className="h-9 px-3 text-xs sm:text-sm">
+                    Correção máxima
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+            </div>
+          )}
 
           {currentMode === "REBALANCE_ONLY" ? (
             <p className="mt-1 text-xs text-primary font-medium">
