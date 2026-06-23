@@ -9,7 +9,9 @@ import { usePrices, type Quote } from '@/hooks/usePrices';
 import type { Asset, Portfolio, Transaction } from '@/types/financial';
 import {
   buildPortfolioDataSignature,
+  computePortfolioDashboardMetrics,
   type AssetWithPrice,
+  type PortfolioDashboardMetrics,
   type PortfolioDisplaySnapshot,
   type PortfolioWithAssets,
 } from '@/lib/portfolio-summary';
@@ -46,15 +48,6 @@ function scheduleIdleTask(callback: () => void): IdleCallbackHandle {
   return setTimeout(callback, 500);
 }
 
-function cancelIdleTask(handle: IdleCallbackHandle) {
-  if (typeof window !== 'undefined' && 'cancelIdleCallback' in window && typeof handle === 'number') {
-    window.cancelIdleCallback(handle);
-    return;
-  }
-
-  clearTimeout(handle as ReturnType<typeof setTimeout>);
-}
-
 function toLightweightSnapshotPortfolios(portfolios: PortfolioWithAssets[]): PortfolioWithAssets[] {
   return portfolios.map((portfolio) => ({
     ...portfolio,
@@ -70,18 +63,29 @@ export function usePortfolios() {
     deletePortfolio,
     getAssets,
     getTransactions,
+    portfolioDisplaySnapshot,
     getPortfolioDisplaySnapshot,
     savePortfolioDisplaySnapshot,
   } = useSecureStorage();
 
   const { quotes, fetchQuotes, isLoading: isPricesLoading, lastUpdated: quotesLastUpdated } = usePrices();
 
+  const initialSnapshotRef = useRef(portfolioDisplaySnapshot);
+  const initialSnapshot = initialSnapshotRef.current;
   const [portfolioData, setPortfolioData] = useState<LoadedPortfolioData | null>(null);
-  const [portfoliosWithAssets, setPortfoliosWithAssets] = useState<PortfolioWithAssets[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [portfoliosWithAssets, setPortfoliosWithAssets] = useState<PortfolioWithAssets[]>(
+    () => initialSnapshot?.portfoliosWithAssets ?? []
+  );
+  const [dashboardMetrics, setDashboardMetrics] = useState<PortfolioDashboardMetrics | null>(
+    () =>
+      initialSnapshot?.dashboardMetrics ??
+      (initialSnapshot
+        ? computePortfolioDashboardMetrics(initialSnapshot.portfoliosWithAssets)
+        : null)
+  );
+  const [isLoading, setIsLoading] = useState(() => !initialSnapshot);
   const [error, setError] = useState<string | null>(null);
-  const hasDisplayDataRef = useRef(false);
-  const snapshotSaveHandleRef = useRef<IdleCallbackHandle | null>(null);
+  const hasDisplayDataRef = useRef(Boolean(initialSnapshot));
   const lastSavedSnapshotKeyRef = useRef<string | null>(null);
   const calculationWorkerRef = useRef<Worker | null>(null);
   const calculationRequestIdRef = useRef(0);
@@ -97,6 +101,9 @@ export function usePortfolios() {
 
   const applyDisplaySnapshot = useCallback((snapshot: PortfolioDisplaySnapshot) => {
     setPortfoliosWithAssets(snapshot.portfoliosWithAssets);
+    setDashboardMetrics(
+      snapshot.dashboardMetrics ?? computePortfolioDashboardMetrics(snapshot.portfoliosWithAssets)
+    );
     hasDisplayDataRef.current = true;
     setIsLoading(false);
   }, []);
@@ -114,6 +121,7 @@ export function usePortfolios() {
     if (!isUnlocked) {
       setPortfolioData(null);
       setPortfoliosWithAssets([]);
+      setDashboardMetrics(null);
       hasDisplayDataRef.current = false;
       setIsLoading(false);
       return;
@@ -181,22 +189,36 @@ export function usePortfolios() {
       if (result.requestId !== calculationRequestIdRef.current) return;
 
       setPricedTickers(result.pricedTickers);
-      setPortfoliosWithAssets(result.portfoliosWithAssets);
-      hasDisplayDataRef.current = true;
-      setIsLoading(false);
 
       const shouldForceQuotes = forceQuotesOnNextCalculationRef.current;
       forceQuotesOnNextCalculationRef.current = false;
 
       if (!result.hasQuoteData && result.pricedTickers.length > 0) {
+        // The first calculation after navigation may run before usePrices has
+        // hydrated its quotes. Keep the last complete values visible instead
+        // of replacing them with a provisional zero-gain calculation.
+        if (!hasDisplayDataRef.current) {
+          setPortfoliosWithAssets(result.portfoliosWithAssets);
+          setDashboardMetrics(computePortfolioDashboardMetrics(result.portfoliosWithAssets));
+          hasDisplayDataRef.current = true;
+          setIsLoading(false);
+        }
+
         scheduleIdleTask(() => {
           void fetchQuotes(result.pricedTickers, { force: shouldForceQuotes });
         });
         return;
       }
 
+      setPortfoliosWithAssets(result.portfoliosWithAssets);
+      const nextDashboardMetrics = computePortfolioDashboardMetrics(result.portfoliosWithAssets);
+      setDashboardMetrics(nextDashboardMetrics);
+      hasDisplayDataRef.current = true;
+      setIsLoading(false);
+
       const snapshot: PortfolioDisplaySnapshot = {
         portfoliosWithAssets: toLightweightSnapshotPortfolios(result.portfoliosWithAssets),
+        dashboardMetrics: nextDashboardMetrics,
         dataSignature: portfolioData.dataSignature,
         quotesUpdatedAt: quotesLastUpdated?.toISOString() ?? null,
         hasQuoteData: true,
@@ -206,20 +228,10 @@ export function usePortfolios() {
       const saveKey = `${snapshot.dataSignature}:${snapshot.quotesUpdatedAt ?? 'no-quotes'}`;
       if (lastSavedSnapshotKeyRef.current === saveKey) return;
 
-      if (snapshotSaveHandleRef.current) {
-        cancelIdleTask(snapshotSaveHandleRef.current);
-        snapshotSaveHandleRef.current = null;
-      }
-
-      snapshotSaveHandleRef.current = scheduleIdleTask(() => {
-        snapshotSaveHandleRef.current = null;
-        savePortfolioDisplaySnapshot(snapshot)
-          .then(() => {
-            lastSavedSnapshotKeyRef.current = saveKey;
-          })
-          .catch((err) => {
-            console.warn('[usePortfolios] Failed to save display snapshot', err);
-          });
+      lastSavedSnapshotKeyRef.current = saveKey;
+      void savePortfolioDisplaySnapshot(snapshot).catch((err) => {
+        lastSavedSnapshotKeyRef.current = null;
+        console.warn('[usePortfolios] Failed to save display snapshot', err);
       });
     };
 
@@ -240,10 +252,6 @@ export function usePortfolios() {
 
   useEffect(() => {
     return () => {
-      if (snapshotSaveHandleRef.current) {
-        cancelIdleTask(snapshotSaveHandleRef.current);
-        snapshotSaveHandleRef.current = null;
-      }
       if (calculationWorkerRef.current) {
         calculationWorkerRef.current.terminate();
         calculationWorkerRef.current = null;
@@ -298,6 +306,7 @@ export function usePortfolios() {
     if (!isUnlocked) {
       setPortfolioData(null);
       setPortfoliosWithAssets([]);
+      setDashboardMetrics(null);
       hasDisplayDataRef.current = false;
       setIsLoading(false);
       return;
@@ -371,6 +380,7 @@ export function usePortfolios() {
   return {
     portfolios,
     portfoliosWithAssets,
+    dashboardMetrics,
     isLoading,
     isPricesLoading,
     error,

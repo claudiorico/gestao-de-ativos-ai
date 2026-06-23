@@ -72,10 +72,15 @@ function isFundCnpj(ticker: string) {
 }
 
 export function usePrices(): UsePricesReturn {
-  const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [quotes, setQuotes] = useState<Record<string, Quote>>(
+    () => sharedQuoteCache.quotes
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(() => {
+    const latestTimestamp = Math.max(0, ...Object.values(sharedQuoteCache.timestamps));
+    return latestTimestamp > 0 ? new Date(latestTimestamp) : null;
+  });
 
   const fetchQuotes = useCallback(async (tickers: string[], options?: { force?: boolean }) => {
     if (!tickers || tickers.length === 0) {

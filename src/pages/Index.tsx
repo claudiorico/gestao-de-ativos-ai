@@ -11,7 +11,7 @@ import { usePortfolios } from "@/hooks/usePortfolios";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { computeAssetDayGain } from "@/lib/portfolio-summary";
+import { computePortfolioDashboardMetrics } from "@/lib/portfolio-summary";
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat("pt-BR", {
@@ -23,7 +23,7 @@ const formatCurrency = (value: number) => {
 const Index = () => {
   const navigate = useNavigate();
   const { isUnlocked } = useSecureStorage();
-  const { portfoliosWithAssets, isLoading } = usePortfolios();
+  const { portfoliosWithAssets, dashboardMetrics, isLoading } = usePortfolios();
   const [showHeavySections, setShowHeavySections] = useState(false);
 
   useEffect(() => {
@@ -53,44 +53,8 @@ const Index = () => {
 
   // Calculate real metrics from portfolios
   const metrics = useMemo(() => {
-    if (!portfoliosWithAssets.length) {
-      return {
-        totalValue: 0,
-        totalCost: 0,
-        totalGain: 0,
-        totalGainPercent: 0,
-        dayGain: 0,
-        dayGainPercent: 0,
-      };
-    }
-
-    let totalValue = 0;
-    let totalCost = 0;
-    let dayGain = 0;
-    let totalGain = 0;
-
-    portfoliosWithAssets.forEach((portfolio) => {
-      totalValue += Number.isFinite(portfolio.currentValue) ? portfolio.currentValue : 0;
-      totalGain += Number.isFinite(portfolio.totalGain) ? portfolio.totalGain : 0;
-      totalCost += Number.isFinite(portfolio.openCostBasis) ? portfolio.openCostBasis : 0;
-
-      portfolio.assets.forEach((asset) => {
-        dayGain += computeAssetDayGain(asset);
-      });
-    });
-
-    const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
-    const dayGainPercent = totalValue > 0 ? (dayGain / totalValue) * 100 : 0;
-
-    return {
-      totalValue,
-      totalCost,
-      totalGain,
-      totalGainPercent,
-      dayGain,
-      dayGainPercent,
-    };
-  }, [portfoliosWithAssets]);
+    return dashboardMetrics ?? computePortfolioDashboardMetrics(portfoliosWithAssets);
+  }, [dashboardMetrics, portfoliosWithAssets]);
 
   // Get all assets for TopAssets component
   const allAssets = useMemo(() => {

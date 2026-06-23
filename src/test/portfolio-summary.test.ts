@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeAssetDayGain, computePortfolioSummaries } from "../lib/portfolio-summary";
+import {
+  computeAssetDayGain,
+  computePortfolioDashboardMetrics,
+  computePortfolioSummaries,
+} from "../lib/portfolio-summary";
 import type { Asset, Portfolio, Transaction } from "../types/financial";
 
 const portfolio: Portfolio = {
@@ -184,5 +188,28 @@ describe("portfolio-summary", () => {
 
     const asset = result[0].assets[0];
     expect(computeAssetDayGain(asset)).toBeCloseTo(90.909, 3);
+  });
+
+  it("builds stable dashboard metrics from the calculated portfolios", () => {
+    const result = computePortfolioSummaries({
+      portfolios: [portfolio],
+      assets: [makeAsset({ shares: 10, averagePrice: 80 })],
+      transactions: [],
+      quotes: {
+        TEST3: {
+          price: 100,
+          change: 50,
+          changePercent: 10,
+        },
+      },
+    });
+
+    const metrics = computePortfolioDashboardMetrics(result);
+    expect(metrics.totalValue).toBe(1000);
+    expect(metrics.totalCost).toBe(800);
+    expect(metrics.totalGain).toBe(200);
+    expect(metrics.totalGainPercent).toBe(25);
+    expect(metrics.dayGain).toBeCloseTo(90.909, 3);
+    expect(metrics.dayGainPercent).toBeCloseTo(9.0909, 3);
   });
 });

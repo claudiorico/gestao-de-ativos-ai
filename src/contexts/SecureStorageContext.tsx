@@ -47,6 +47,8 @@ interface SecureStorageState {
 }
 
 interface SecureStorageContextType extends SecureStorageState {
+  portfolioDisplaySnapshot: PortfolioDisplaySnapshot | null;
+
   // Initialization
   initializeVault: (password: string) => Promise<void>;
   unlockVault: (password: string) => Promise<boolean>;
@@ -112,7 +114,7 @@ const SecureStorageContext = createContext<SecureStorageContextType | null>(null
 
 const METADATA_KEY = 'encryption_metadata';
 const MASTER_DATA_KEY = 'master';
-const PORTFOLIO_DISPLAY_SNAPSHOT_KEY = 'portfolio_display_snapshot_v4';
+const PORTFOLIO_DISPLAY_SNAPSHOT_KEY = 'portfolio_display_snapshot_v5';
 const KEY_VERIFIER_KEY = 'key_verifier';
 const KEY_VERIFIER_VALUE = 'investpro-vault-key-v1';
 const RECORD_DATA_PREFIX = 'record:';
@@ -140,6 +142,9 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
   const [decryptIssuesByStore, setDecryptIssuesByStore] = useState<Record<string, number>>({});
   const [localHasData, setLocalHasData] = useState(false);
+  const [portfolioDisplaySnapshot, setPortfolioDisplaySnapshot] =
+    useState<PortfolioDisplaySnapshot | null>(null);
+  const portfolioDisplaySnapshotRef = React.useRef<PortfolioDisplaySnapshot | null>(null);
 
   const clearDecryptIssues = useCallback(() => setDecryptIssuesByStore({}), []);
   
@@ -156,6 +161,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     if (!isUserLoading) {
       const namespace = getUserNamespace();
       setUserNamespace(namespace);
+      portfolioDisplaySnapshotRef.current = null;
+      setPortfolioDisplaySnapshot(null);
     }
   }, [getUserNamespace, isUserLoading]);
 
@@ -223,6 +230,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       await setItem('metadata', KEY_VERIFIER_KEY, await encrypt(KEY_VERIFIER_VALUE, key));
       
       setEncryptionKey(key);
+      portfolioDisplaySnapshotRef.current = null;
+      setPortfolioDisplaySnapshot(null);
       setState({
         isInitialized: true,
         isUnlocked: true,
@@ -297,6 +306,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       }
       
       setEncryptionKey(key);
+      portfolioDisplaySnapshotRef.current = null;
+      setPortfolioDisplaySnapshot(null);
       setState({
         isInitialized: true,
         isUnlocked: true,
@@ -317,6 +328,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
   const lockVault = useCallback((): void => {
     setEncryptionKey(null);
+    portfolioDisplaySnapshotRef.current = null;
+    setPortfolioDisplaySnapshot(null);
     setState((prev) => ({ ...prev, isUnlocked: false }));
   }, []);
 
@@ -528,12 +541,16 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
   const getPortfolioDisplaySnapshot = useCallback(async (): Promise<PortfolioDisplaySnapshot | null> => {
     if (!encryptionKey) return null;
+    if (portfolioDisplaySnapshotRef.current) return portfolioDisplaySnapshotRef.current;
 
     const encrypted = await getItem('settings', PORTFOLIO_DISPLAY_SNAPSHOT_KEY);
     if (!encrypted) return null;
 
     try {
-      return await decryptJson<PortfolioDisplaySnapshot>('settings', encrypted);
+      const snapshot = await decryptJson<PortfolioDisplaySnapshot>('settings', encrypted);
+      portfolioDisplaySnapshotRef.current = snapshot;
+      setPortfolioDisplaySnapshot(snapshot);
+      return snapshot;
     } catch (error) {
       console.warn('[SecureStorage] Ignoring invalid portfolio display snapshot', error);
       return null;
@@ -544,6 +561,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     async (snapshot: PortfolioDisplaySnapshot): Promise<void> => {
       if (!encryptionKey) throw new Error('Vault is locked');
 
+      portfolioDisplaySnapshotRef.current = snapshot;
+      setPortfolioDisplaySnapshot(snapshot);
       const encrypted = await encrypt(JSON.stringify(snapshot), encryptionKey);
       await setItem('settings', PORTFOLIO_DISPLAY_SNAPSHOT_KEY, encrypted);
     },
@@ -660,6 +679,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
       // 6. Update context key + clear biometric (ciphertext is now stale)
       setEncryptionKey(newKey);
+      portfolioDisplaySnapshotRef.current = null;
+      setPortfolioDisplaySnapshot(null);
       disableBiometric(getUserNamespace());
     },
     [encryptionKey, getEncryptedData, getUserNamespace]
@@ -701,6 +722,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
   const wipeAllData = useCallback(async (): Promise<void> => {
     await wipeDatabase();
     setEncryptionKey(null);
+    portfolioDisplaySnapshotRef.current = null;
+    setPortfolioDisplaySnapshot(null);
     setState({
       isInitialized: false,
       isUnlocked: false,
@@ -711,6 +734,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
 
   const value: SecureStorageContextType = {
     ...state,
+    portfolioDisplaySnapshot,
     isVaultSetup,
     initializeVault,
     unlockVault,

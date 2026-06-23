@@ -25,8 +25,18 @@ export interface PortfolioWithAssets extends Portfolio {
   totalGainPercent: number;
 }
 
+export interface PortfolioDashboardMetrics {
+  totalValue: number;
+  totalCost: number;
+  totalGain: number;
+  totalGainPercent: number;
+  dayGain: number;
+  dayGainPercent: number;
+}
+
 export interface PortfolioDisplaySnapshot {
   portfoliosWithAssets: PortfolioWithAssets[];
+  dashboardMetrics?: PortfolioDashboardMetrics;
   dataSignature: string;
   quotesUpdatedAt: string | null;
   hasQuoteData?: boolean;
@@ -130,6 +140,34 @@ export function computeAssetDayGain(
   const previousPrice = asset.currentPrice / (1 + pct / 100);
   const delta = asset.shares * (asset.currentPrice - previousPrice);
   return Number.isFinite(delta) ? delta : 0;
+}
+
+export function computePortfolioDashboardMetrics(
+  portfoliosWithAssets: PortfolioWithAssets[]
+): PortfolioDashboardMetrics {
+  let totalValue = 0;
+  let totalCost = 0;
+  let totalGain = 0;
+  let dayGain = 0;
+
+  for (const portfolio of portfoliosWithAssets) {
+    totalValue += Number.isFinite(portfolio.currentValue) ? portfolio.currentValue : 0;
+    totalGain += Number.isFinite(portfolio.totalGain) ? portfolio.totalGain : 0;
+    totalCost += Number.isFinite(portfolio.openCostBasis) ? portfolio.openCostBasis : 0;
+
+    for (const asset of portfolio.assets) {
+      dayGain += computeAssetDayGain(asset);
+    }
+  }
+
+  return {
+    totalValue,
+    totalCost,
+    totalGain,
+    totalGainPercent: totalCost > 0 ? (totalGain / totalCost) * 100 : 0,
+    dayGain,
+    dayGainPercent: totalValue > 0 ? (dayGain / totalValue) * 100 : 0,
+  };
 }
 
 export function buildPortfolioDataSignature(input: {
