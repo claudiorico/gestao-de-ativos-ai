@@ -40,6 +40,61 @@ export interface Transaction {
   createdAt: number;
 }
 
+export type CorporateActionType =
+  | 'split'
+  | 'reverse_split'
+  | 'bonus'
+  | 'amortization'
+  | 'subscription'
+  | 'ticker_change'
+  | 'merger';
+
+export interface CorporateAction {
+  id: string;
+  portfolioId: string;
+  assetId: string;
+  destinationAssetId?: string;
+  type: CorporateActionType;
+  date: number;
+  ratioNumerator?: number;
+  ratioDenominator?: number;
+  quantityChange?: number;
+  costBasisChange?: number;
+  cashValue?: number;
+  cashMovementId?: string;
+  status: 'applied' | 'pending';
+  sourceImportedMovementId?: string;
+  notes?: string;
+  createdAt: number;
+}
+
+export type ImportedMovementClassification =
+  | 'accounting'
+  | 'corporate_action'
+  | 'informational'
+  | 'pending';
+
+export interface ImportedMovement {
+  id: string;
+  source: 'b3_negotiation' | 'b3_movement' | 'spreadsheet';
+  fingerprint: string;
+  rawDescription: string;
+  movementType: string;
+  direction?: string;
+  productName?: string;
+  ticker?: string;
+  date: number;
+  quantity: number;
+  unitPrice: number;
+  value: number;
+  classification: ImportedMovementClassification;
+  suggestedCorporateActionType?: CorporateActionType;
+  reason: string;
+  status: 'applied' | 'informational' | 'pending';
+  linkedRecordIds: string[];
+  createdAt: number;
+}
+
 export interface CashMovement {
   id: string;
   portfolioId: string;
@@ -54,7 +109,7 @@ export interface Dividend {
   id: string;
   assetId: string;
   portfolioId: string;
-  type: 'dividend' | 'jcp' | 'yield' | 'bonus';
+  type: 'dividend' | 'jcp' | 'yield' | 'bonus' | 'stock_lending';
   valuePerShare: number;
   shares: number;
   totalValue: number;

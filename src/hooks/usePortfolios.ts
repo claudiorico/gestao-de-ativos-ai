@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSecureStorage } from '@/contexts/SecureStorageContext';
 import { usePrices, type Quote } from '@/hooks/usePrices';
-import type { Asset, Portfolio, Transaction } from '@/types/financial';
+import type { Asset, CorporateAction, Portfolio, Transaction } from '@/types/financial';
 import {
   buildPortfolioDataSignature,
   computePortfolioDashboardMetrics,
@@ -22,6 +22,7 @@ interface LoadedPortfolioData {
   portfolios: Portfolio[];
   assets: Asset[];
   transactions: Transaction[];
+  corporateActions: CorporateAction[];
   dataSignature: string;
   loadedAt: number;
 }
@@ -63,6 +64,7 @@ export function usePortfolios() {
     deletePortfolio,
     getAssets,
     getTransactions,
+    getCorporateActions,
     portfolioDisplaySnapshot,
     getPortfolioDisplaySnapshot,
     savePortfolioDisplaySnapshot,
@@ -133,22 +135,25 @@ export function usePortfolios() {
       if (!opts?.silent && !hasDisplayDataRef.current) setIsLoading(true);
       setError(null);
 
-      const [loadedPortfolios, loadedAssets, loadedTransactions] = await Promise.all([
+      const [loadedPortfolios, loadedAssets, loadedTransactions, loadedCorporateActions] = await Promise.all([
         getPortfolios(),
         getAssets(),
         getTransactions(),
+        getCorporateActions(),
       ]);
 
       const dataSignature = buildPortfolioDataSignature({
         portfolios: loadedPortfolios,
         assets: loadedAssets,
         transactions: loadedTransactions,
+        corporateActions: loadedCorporateActions,
       });
 
       setPortfolioData({
         portfolios: loadedPortfolios,
         assets: loadedAssets,
         transactions: loadedTransactions,
+        corporateActions: loadedCorporateActions,
         dataSignature,
         loadedAt: Date.now(),
       });
@@ -168,6 +173,7 @@ export function usePortfolios() {
     getAssets,
     getPortfolios,
     getTransactions,
+    getCorporateActions,
     isUnlocked,
   ]);
 
@@ -246,6 +252,7 @@ export function usePortfolios() {
       portfolios: portfolioData.portfolios,
       assets: portfolioData.assets,
       transactions: portfolioData.transactions,
+      corporateActions: portfolioData.corporateActions,
       quotes,
     });
   }, [fetchQuotes, portfolioData, quotes, quotesLastUpdated, savePortfolioDisplaySnapshot]);

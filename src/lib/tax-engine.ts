@@ -9,7 +9,7 @@
  * - Trilhas de auditoria (detalhe por operação, compensações e isenções)
  */
 
-import type { Asset, Transaction } from "@/types/financial";
+import type { Asset, CorporateAction, Transaction } from "@/types/financial";
 
 export type TaxMarket = "B3" | "CRYPTO";
 
@@ -151,6 +151,7 @@ export type MonthlyApuration = {
 export type TaxEngineInput = {
   assets: Asset[];
   transactions: Transaction[];
+  corporateActions?: CorporateAction[];
   /** opcional: filtra por portfólio */
   portfolioId?: string;
   /** ano calendário (ex.: 2025) */
@@ -255,6 +256,56 @@ type RunningPosition = {
   qty: number;
   totalCost: number; // custo agregado (qty * avg)
 };
+
+function applyTaxCorporateAction(
+  positions: Map<string, RunningPosition>,
+  action: CorporateAction
+) {
+  const source = positions.get(action.assetId) ?? { qty: 0, totalCost: 0 };
+  const numerator = safeNumber(action.ratioNumerator, 0);
+  const denominator = safeNumber(action.ratioDenominator, 0);
+  const ratio = numerator > 0 && denominator > 0 ? numerator / denominator : 0;
+
+  if (action.type === "split" || action.type === "reverse_split") {
+    if (ratio > 0) source.qty *= ratio;
+    positions.set(action.assetId, source);
+    return;
+  }
+
+  if (action.type === "bonus" || action.type === "subscription") {
+    source.qty +=
+      safeNumber(action.quantityChange, 0) || (ratio > 0 ? source.qty * ratio : 0);
+    source.totalCost = Math.max(
+      0,
+      source.totalCost + safeNumber(action.costBasisChange, 0)
+    );
+    positions.set(action.assetId, source);
+    return;
+  }
+
+  if (action.type === "amortization") {
+    const reduction = Math.abs(
+      safeNumber(action.costBasisChange, 0) || safeNumber(action.cashValue, 0)
+    );
+    source.totalCost = Math.max(0, source.totalCost - reduction);
+    positions.set(action.assetId, source);
+    return;
+  }
+
+  if (
+    (action.type === "ticker_change" || action.type === "merger") &&
+    action.destinationAssetId
+  ) {
+    const destination = positions.get(action.destinationAssetId) ?? {
+      qty: 0,
+      totalCost: 0,
+    };
+    destination.qty += ratio > 0 ? source.qty * ratio : source.qty;
+    destination.totalCost += source.totalCost + safeNumber(action.costBasisChange, 0);
+    positions.set(action.destinationAssetId, destination);
+    positions.set(action.assetId, { qty: 0, totalCost: 0 });
+  }
+}
 
 /**
  * Apuração mensal (DARF) para o ano, com trilha de auditoria.
@@ -480,8 +531,40 @@ export function computeMonthlyApuration(input: TaxEngineInput): TaxEngineOutput 
   // positions por ativo (para custo médio de Swing Trade)
   const posByAsset = new Map<string, RunningPosition>();
 
+  const appliedActions = (input.corporateActions ?? []).filter(
+    (action) =>
+      action.status === "applied" &&
+      (!input.portfolioId || action.portfolioId === input.portfolioId) &&
+      new Date(action.date).getFullYear() === input.year
+  );
+  const pendingActions = (input.corporateActions ?? []).filter(
+    (action) =>
+      action.status === "pending" &&
+      (!input.portfolioId || action.portfolioId === input.portfolioId) &&
+      new Date(action.date).getFullYear() === input.year
+  );
+  if (pendingActions.length > 0) {
+    warnings.push(
+      `${pendingActions.length} evento(s) corporativo(s) pendente(s) nao foram aplicados na apuracao.`
+    );
+  }
+
+  const timeline = [
+    ...appliedActions.map((action) => ({ date: action.date, priority: 0, action })),
+    ...processedTxs.map((transaction) => ({
+      date: transaction.date,
+      priority: 1,
+      transaction,
+    })),
+  ].sort((a, b) => a.date - b.date || a.priority - b.priority);
+
   // 2) Percorre transações de Swing Trade em ordem cronológica para gerar ganhos
-  for (const t of processedTxs) {
+  for (const entry of timeline) {
+    if ("action" in entry) {
+      applyTaxCorporateAction(posByAsset, entry.action);
+      continue;
+    }
+    const t = entry.transaction;
     const asset = assetsById.get(t.assetId);
     if (!asset) {
       warnings.push(`Transação ${t.id} referencia assetId inexistente (${t.assetId}).`);

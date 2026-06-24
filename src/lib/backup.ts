@@ -6,7 +6,7 @@
  */
 
 // Backup file format version
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 2;
 
 export interface BackupData {
   version: number;
@@ -18,6 +18,8 @@ export interface BackupData {
     transactions: string | null;
     dividends: string | null;
     cash_movements: string | null;
+    corporate_actions: string | null;
+    imported_movements: string | null;
     settings: string | null;
     metadata: string | null;
   };
@@ -68,6 +70,8 @@ export function createBackupPayload(encryptedData: string): BackupData {
       transactions: parsed.transactions || null,
       dividends: parsed.dividends || null,
       cash_movements: parsed.cash_movements || null,
+      corporate_actions: parsed.corporate_actions || null,
+      imported_movements: parsed.imported_movements || null,
       settings: parsed.settings || null,
       metadata: parsed.metadata || null,
     },

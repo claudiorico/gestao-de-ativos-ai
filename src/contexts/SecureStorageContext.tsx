@@ -34,6 +34,8 @@ import type {
   Transaction,
   Dividend,
   CashMovement,
+  CorporateAction,
+  ImportedMovement,
   UserSettings,
   EncryptionMetadata,
 } from '@/types/financial';
@@ -90,6 +92,16 @@ interface SecureStorageContextType extends SecureStorageState {
   saveCashMovementsBulk: (movements: CashMovement[]) => Promise<void>;
   deleteCashMovement: (id: string) => Promise<void>;
 
+  // Corporate actions and imported movement audit
+  getCorporateActions: (assetId?: string) => Promise<CorporateAction[]>;
+  saveCorporateAction: (action: CorporateAction) => Promise<void>;
+  saveCorporateActionsBulk: (actions: CorporateAction[]) => Promise<void>;
+  deleteCorporateAction: (id: string) => Promise<void>;
+  getImportedMovements: () => Promise<ImportedMovement[]>;
+  saveImportedMovement: (movement: ImportedMovement) => Promise<void>;
+  saveImportedMovementsBulk: (movements: ImportedMovement[]) => Promise<void>;
+  deleteImportedMovement: (id: string) => Promise<void>;
+
   // Settings
   getSettings: () => Promise<UserSettings | null>;
   saveSettings: (settings: UserSettings) => Promise<void>;
@@ -119,7 +131,14 @@ const KEY_VERIFIER_KEY = 'key_verifier';
 const KEY_VERIFIER_VALUE = 'investpro-vault-key-v1';
 const RECORD_DATA_PREFIX = 'record:';
 
-type EncryptedDataStore = 'portfolios' | 'assets' | 'transactions' | 'dividends' | 'cash_movements';
+type EncryptedDataStore =
+  | 'portfolios'
+  | 'assets'
+  | 'transactions'
+  | 'dividends'
+  | 'cash_movements'
+  | 'corporate_actions'
+  | 'imported_movements';
 
 const ENCRYPTED_DATA_STORES: EncryptedDataStore[] = [
   'portfolios',
@@ -127,6 +146,8 @@ const ENCRYPTED_DATA_STORES: EncryptedDataStore[] = [
   'transactions',
   'dividends',
   'cash_movements',
+  'corporate_actions',
+  'imported_movements',
 ];
 
 const makeRecordKey = (id: string) => `${RECORD_DATA_PREFIX}${id}`;
@@ -518,6 +539,40 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
   const saveCashMovementsBulk = useCallback((m: CashMovement[]) => saveManyEncryptedData('cash_movements', m), [saveManyEncryptedData]);
   const deleteCashMovement = useCallback((id: string) => deleteEncryptedData<CashMovement>('cash_movements', id), [deleteEncryptedData]);
 
+  // Corporate actions and raw imported movement audit
+  const getCorporateActions = useCallback(async (assetId?: string): Promise<CorporateAction[]> => {
+    const actions = await getEncryptedData<CorporateAction>('corporate_actions');
+    return assetId ? actions.filter((action) => action.assetId === assetId) : actions;
+  }, [getEncryptedData]);
+  const saveCorporateAction = useCallback(
+    (action: CorporateAction) => saveEncryptedData('corporate_actions', action),
+    [saveEncryptedData]
+  );
+  const saveCorporateActionsBulk = useCallback(
+    (actions: CorporateAction[]) => saveManyEncryptedData('corporate_actions', actions),
+    [saveManyEncryptedData]
+  );
+  const deleteCorporateAction = useCallback(
+    (id: string) => deleteEncryptedData<CorporateAction>('corporate_actions', id),
+    [deleteEncryptedData]
+  );
+  const getImportedMovements = useCallback(
+    () => getEncryptedData<ImportedMovement>('imported_movements'),
+    [getEncryptedData]
+  );
+  const saveImportedMovement = useCallback(
+    (movement: ImportedMovement) => saveEncryptedData('imported_movements', movement),
+    [saveEncryptedData]
+  );
+  const saveImportedMovementsBulk = useCallback(
+    (movements: ImportedMovement[]) => saveManyEncryptedData('imported_movements', movements),
+    [saveManyEncryptedData]
+  );
+  const deleteImportedMovement = useCallback(
+    (id: string) => deleteEncryptedData<ImportedMovement>('imported_movements', id),
+    [deleteEncryptedData]
+  );
+
   // Settings (stored separately, also encrypted)
   const getSettings = useCallback(async (): Promise<UserSettings | null> => {
     if (!encryptionKey) return null;
@@ -579,6 +634,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
         transactions: await encrypt(JSON.stringify(await getEncryptedData<Transaction>('transactions')), encryptionKey),
         dividends: await encrypt(JSON.stringify(await getEncryptedData<Dividend>('dividends')), encryptionKey),
         cash_movements: await encrypt(JSON.stringify(await getEncryptedData<CashMovement>('cash_movements')), encryptionKey),
+        corporate_actions: await encrypt(JSON.stringify(await getEncryptedData<CorporateAction>('corporate_actions')), encryptionKey),
+        imported_movements: await encrypt(JSON.stringify(await getEncryptedData<ImportedMovement>('imported_movements')), encryptionKey),
         settings: await getItem('settings', MASTER_DATA_KEY),
         metadata: await getItem('metadata', METADATA_KEY),
         exportedAt: Date.now(),
@@ -601,6 +658,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
         clearStore('transactions'),
         clearStore('dividends'),
         clearStore('cash_movements'),
+        clearStore('corporate_actions'),
+        clearStore('imported_movements'),
         clearStore('settings'),
         clearStore('metadata'),
       ]);
@@ -610,6 +669,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       if (data.transactions) await setItem('transactions', MASTER_DATA_KEY, data.transactions);
       if (data.dividends) await setItem('dividends', MASTER_DATA_KEY, data.dividends);
       if (data.cash_movements) await setItem('cash_movements', MASTER_DATA_KEY, data.cash_movements);
+      if (data.corporate_actions) await setItem('corporate_actions', MASTER_DATA_KEY, data.corporate_actions);
+      if (data.imported_movements) await setItem('imported_movements', MASTER_DATA_KEY, data.imported_movements);
       if (data.settings) await setItem('settings', MASTER_DATA_KEY, data.settings);
       if (data.metadata) await setItem('metadata', METADATA_KEY, data.metadata);
 
@@ -645,6 +706,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       const transactions = await getEncryptedData<Transaction>('transactions');
       const dividends = await getEncryptedData<Dividend>('dividends');
       const cashMovements = await getEncryptedData<CashMovement>('cash_movements');
+      const corporateActions = await getEncryptedData<CorporateAction>('corporate_actions');
+      const importedMovements = await getEncryptedData<ImportedMovement>('imported_movements');
       const settingsRaw = await getItem('settings', MASTER_DATA_KEY);
       let settingsJson: string | null = null;
       if (settingsRaw) {
@@ -673,6 +736,8 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       await reencrypt('transactions', transactions);
       await reencrypt('dividends', dividends);
       await reencrypt('cash_movements', cashMovements);
+      await reencrypt('corporate_actions', corporateActions);
+      await reencrypt('imported_movements', importedMovements);
       if (settingsJson) {
         await setItem('settings', MASTER_DATA_KEY, await encrypt(settingsJson, newKey));
       }
@@ -761,6 +826,14 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     saveCashMovement,
     saveCashMovementsBulk,
     deleteCashMovement,
+    getCorporateActions,
+    saveCorporateAction,
+    saveCorporateActionsBulk,
+    deleteCorporateAction,
+    getImportedMovements,
+    saveImportedMovement,
+    saveImportedMovementsBulk,
+    deleteImportedMovement,
     getSettings,
     saveSettings,
     getPortfolioDisplaySnapshot,

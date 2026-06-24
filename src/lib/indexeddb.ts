@@ -5,7 +5,7 @@
  */
 
 const DB_NAME_PREFIX = 'investpro_secure';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 // Current user namespace (set when user logs in)
 let currentNamespace: string = 'default';
@@ -16,6 +16,8 @@ export interface DBStores {
   transactions: string;
   dividends: string;
   cash_movements: string;
+  corporate_actions: string;
+  imported_movements: string;
   settings: string;
   metadata: string;
 }
@@ -26,6 +28,8 @@ const STORES: (keyof DBStores)[] = [
   'transactions',
   'dividends',
   'cash_movements',
+  'corporate_actions',
+  'imported_movements',
   'settings',
   'metadata',
 ];

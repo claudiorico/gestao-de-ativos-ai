@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { computeMonthlyApuration } from "../lib/tax-engine";
-import type { Asset, Transaction } from "../types/financial";
+import type { Asset, CorporateAction, Transaction } from "../types/financial";
 
 // Helper to create date timestamps
 function dateMs(year: number, month: number, day: number, hour = 12): number {
@@ -299,5 +299,72 @@ describe("Tax Engine", () => {
 
     // Imposto esperado: 40 BRL (proveniente apenas do Day Trade de 40 ações)
     expect(monthData.taxDue).toBe(40);
+  });
+
+  it("applies a confirmed split before calculating a later sale", () => {
+    const asset: Asset = {
+      id: "split-asset",
+      portfolioId,
+      ticker: "TEST3",
+      name: "Teste",
+      type: "stock",
+      targetAllocation: 0,
+      shares: 0,
+      averagePrice: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const transactions: Transaction[] = [
+      {
+        id: "split-buy",
+        assetId: asset.id,
+        portfolioId,
+        type: "buy",
+        shares: 100,
+        pricePerShare: 10,
+        totalValue: 1000,
+        fees: 0,
+        date: dateMs(2025, 1, 2),
+        createdAt: 0,
+      },
+      {
+        id: "split-sell",
+        assetId: asset.id,
+        portfolioId,
+        type: "sell",
+        shares: 100,
+        pricePerShare: 6,
+        totalValue: 600,
+        fees: 0,
+        date: dateMs(2025, 2, 2),
+        createdAt: 0,
+      },
+    ];
+    const corporateActions: CorporateAction[] = [
+      {
+        id: "split-action",
+        portfolioId,
+        assetId: asset.id,
+        type: "split",
+        date: dateMs(2025, 1, 20),
+        ratioNumerator: 2,
+        ratioDenominator: 1,
+        status: "applied",
+        createdAt: 0,
+      },
+    ];
+
+    const result = computeMonthlyApuration({
+      assets: [asset],
+      transactions,
+      corporateActions,
+      year: 2025,
+    });
+
+    const operation = result.months
+      .flatMap((month) => month.categories.B3_EQUITIES.operations)
+      .find((item) => item.transactionId === "split-sell");
+    expect(operation?.costBasis).toBe(500);
+    expect(operation?.gain).toBe(100);
   });
 });

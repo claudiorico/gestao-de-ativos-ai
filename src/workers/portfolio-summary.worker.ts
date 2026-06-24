@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import type { Asset, Portfolio, Transaction } from "@/types/financial";
+import type { Asset, CorporateAction, Portfolio, Transaction } from "@/types/financial";
 import {
   computePortfolioSummaries,
   isPricedAssetType,
@@ -13,6 +13,7 @@ interface PortfolioSummaryWorkerRequest {
   portfolios: Portfolio[];
   assets: Asset[];
   transactions: Transaction[];
+  corporateActions: CorporateAction[];
   quotes: Record<string, PortfolioQuote | undefined>;
 }
 
@@ -33,12 +34,13 @@ function getQuoteForTicker(quotes: Record<string, PortfolioQuote | undefined>, t
 }
 
 self.onmessage = (event: MessageEvent<PortfolioSummaryWorkerRequest>) => {
-  const { requestId, portfolios, assets, transactions, quotes } = event.data;
+  const { requestId, portfolios, assets, transactions, corporateActions, quotes } = event.data;
 
   const portfoliosWithAssets = computePortfolioSummaries({
     portfolios,
     assets,
     transactions,
+    corporateActions,
     quotes,
   });
 
