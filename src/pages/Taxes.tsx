@@ -362,7 +362,7 @@ function DarfInstructionsDialog({
           </div>
 
           <a
-            href="https://sicalcweb.receita.fazenda.gov.br/SICALCWEB/pages/emissaoDarf/sicalcWebEmissaoDarf.jsf"
+            href="https://sicalc.receita.fazenda.gov.br/sicalc/rapido/contribuinte"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-2 w-full rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
