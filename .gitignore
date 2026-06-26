@@ -22,6 +22,7 @@ b3-import/
 
 # Editor directories and files
 .claude/
+.browser-profile-*/
 .vscode/*
 !.vscode/extensions.json
 .idea

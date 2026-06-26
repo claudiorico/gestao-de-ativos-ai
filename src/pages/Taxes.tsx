@@ -29,7 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
-import type { Asset, Dividend, Portfolio, Transaction } from "@/types/financial";
+import type { Asset, CorporateAction, Dividend, Portfolio, Transaction } from "@/types/financial";
 import {
   computeMonthlyApuration,
   defaultTaxEngineConfig,
@@ -38,6 +38,7 @@ import {
 } from "@/lib/tax-engine";
 import { TaxAuditDialog } from "@/components/taxes/TaxAuditDialog";
 import * as XLSX from "xlsx";
+import { computeAssetPositions } from "@/lib/portfolio-summary";
 
 import { Blur } from "@/components/ui/blur";
 
@@ -94,34 +95,20 @@ function irpfCode(type: Asset["type"]): string {
 function computePositionsAt(
   assets: Asset[],
   transactions: Transaction[],
+  corporateActions: CorporateAction[],
   year: number,
   portfolioId?: string,
 ) {
   const endMs = new Date(year, 11, 31, 23, 59, 59, 999).getTime();
   const assetMap = new Map(assets.map((a) => [a.id, a]));
-
-  const positions = new Map<string, { qty: number; totalCost: number }>();
-
-  const relevant = transactions
-    .filter((t) => t.date <= endMs)
-    .filter((t) => !portfolioId || t.portfolioId === portfolioId)
-    .sort((a, b) => a.date - b.date);
-
-  for (const tx of relevant) {
-    const pos = positions.get(tx.assetId) ?? { qty: 0, totalCost: 0 };
-    if (tx.type === "buy") {
-      pos.totalCost += tx.totalValue + (tx.fees ?? 0);
-      pos.qty += tx.shares;
-    } else {
-      const avgCost = pos.qty > 0 ? pos.totalCost / pos.qty : 0;
-      pos.qty = Math.max(0, pos.qty - tx.shares);
-      pos.totalCost = pos.qty * avgCost;
-    }
-    positions.set(tx.assetId, pos);
-  }
+  const positions = computeAssetPositions(
+    transactions.filter((transaction) => !portfolioId || transaction.portfolioId === portfolioId),
+    corporateActions.filter((action) => !portfolioId || action.portfolioId === portfolioId),
+    endMs
+  );
 
   return Array.from(positions.entries())
-    .filter(([, p]) => p.qty > 0.0001)
+    .filter(([, position]) => position.shares > 0.0001)
     .map(([assetId, p]) => {
       const asset = assetMap.get(assetId);
       return {
@@ -129,9 +116,9 @@ function computePositionsAt(
         ticker: asset?.ticker ?? assetId,
         name: asset?.name ?? assetId,
         type: asset?.type ?? ("stock" as Asset["type"]),
-        qty: p.qty,
-        avgCost: p.qty > 0 ? p.totalCost / p.qty : 0,
-        totalCost: p.totalCost,
+        qty: p.shares,
+        avgCost: p.averagePrice,
+        totalCost: p.openCostBasis,
       };
     })
     .sort((a, b) => a.ticker.localeCompare(b.ticker));
@@ -156,11 +143,12 @@ function exportDarfXlsx(darfRows: DarfRow[], year: number) {
 function buildBensSheet(
   assets: Asset[],
   transactions: Transaction[],
+  corporateActions: CorporateAction[],
   year: number,
   portfolioId?: string,
 ) {
-  const prevYear = computePositionsAt(assets, transactions, year - 1, portfolioId);
-  const currYear = computePositionsAt(assets, transactions, year, portfolioId);
+  const prevYear = computePositionsAt(assets, transactions, corporateActions, year - 1, portfolioId);
+  const currYear = computePositionsAt(assets, transactions, corporateActions, year, portfolioId);
 
   const prevMap = new Map(prevYear.map((p) => [p.assetId, p]));
 
@@ -213,7 +201,9 @@ function buildRendimentosSheet(
   const filtered = dividends
     .filter((d) => new Date(d.paymentDate).getFullYear() === year)
     .filter((d) =>
-      type === "tributavel" ? d.type === "jcp" : d.type !== "jcp",
+      type === "tributavel"
+        ? d.type === "jcp" || d.type === "stock_lending"
+        : d.type !== "jcp" && d.type !== "stock_lending",
     );
 
   const rows: (string | number)[][] = [
@@ -253,6 +243,7 @@ function buildApuracaoSheet(darfRows: DarfRow[]) {
 function exportAuxiliarIrpf(
   assets: Asset[],
   transactions: Transaction[],
+  corporateActions: CorporateAction[],
   dividends: Dividend[],
   darfRows: DarfRow[],
   year: number,
@@ -283,7 +274,7 @@ function exportAuxiliarIrpf(
   XLSX.utils.book_append_sheet(wb, buildApuracaoSheet(darfRows), "Apuração Mensal");
   XLSX.utils.book_append_sheet(
     wb,
-    buildBensSheet(assets, transactions, year, portfolioId),
+    buildBensSheet(assets, transactions, corporateActions, year, portfolioId),
     "Bens e Direitos",
   );
   XLSX.utils.book_append_sheet(
@@ -387,12 +378,20 @@ function DarfInstructionsDialog({
 
 export default function Taxes() {
   const { toast } = useToast();
-  const { isUnlocked, getPortfolios, getAssets, getTransactions, getDividends } = useSecureStorage();
+  const {
+    isUnlocked,
+    getPortfolios,
+    getAssets,
+    getTransactions,
+    getDividends,
+    getCorporateActions,
+  } = useSecureStorage();
 
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
+  const [corporateActions, setCorporateActions] = useState<CorporateAction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [auditMonth, setAuditMonth] = useState<MonthlyApuration | null>(null);
@@ -410,22 +409,25 @@ export default function Taxes() {
       setAssets([]);
       setTransactions([]);
       setDividends([]);
+      setCorporateActions([]);
       setIsLoading(false);
       return;
     }
 
     try {
       setIsLoading(true);
-      const [p, a, tx, dv] = await Promise.all([
+      const [p, a, tx, dv, actions] = await Promise.all([
         getPortfolios(),
         getAssets(),
         getTransactions(),
         getDividends(),
+        getCorporateActions(),
       ]);
       setPortfolios(p);
       setAssets(a);
       setTransactions(tx);
       setDividends(dv);
+      setCorporateActions(actions);
     } catch (err) {
       console.error("[Taxes] Failed to load vault data:", err);
       toast({
@@ -436,7 +438,15 @@ export default function Taxes() {
     } finally {
       setIsLoading(false);
     }
-  }, [getAssets, getDividends, getPortfolios, getTransactions, isUnlocked, toast]);
+  }, [
+    getAssets,
+    getCorporateActions,
+    getDividends,
+    getPortfolios,
+    getTransactions,
+    isUnlocked,
+    toast,
+  ]);
 
   useEffect(() => {
     load();
@@ -473,11 +483,12 @@ export default function Taxes() {
     return computeMonthlyApuration({
       assets,
       transactions,
+      corporateActions,
       year: selectedYear,
       portfolioId: selectedPortfolioId === "all" ? undefined : selectedPortfolioId,
       config: defaultTaxEngineConfig,
     });
-  }, [assets, isUnlocked, selectedPortfolioId, selectedYear, transactions]);
+  }, [assets, corporateActions, isUnlocked, selectedPortfolioId, selectedYear, transactions]);
 
   const summary = useMemo(() => {
     const months = apuration?.months ?? [];
@@ -485,14 +496,14 @@ export default function Taxes() {
     const taxDue = months.reduce((acc, m) => acc + (m.totalTaxDue ?? 0), 0);
 
     const exemptDividends = filteredDividends
-      .filter((d) => d.type !== "jcp")
+      .filter((d) => d.type !== "jcp" && d.type !== "stock_lending")
       .reduce((acc, d) => {
         const v = Number.isFinite(d.grossValue) ? d.grossValue : Number(d.totalValue ?? 0);
         return acc + (Number.isFinite(v) ? v : 0);
       }, 0);
 
     const taxableDividends = filteredDividends
-      .filter((d) => d.type === "jcp")
+      .filter((d) => d.type === "jcp" || d.type === "stock_lending")
       .reduce((acc, d) => {
         const v = Number.isFinite(d.grossValue) ? d.grossValue : Number(d.totalValue ?? 0);
         return acc + (Number.isFinite(v) ? v : 0);
@@ -572,6 +583,7 @@ export default function Taxes() {
                 exportAuxiliarIrpf(
                   assets,
                   transactions,
+                  corporateActions,
                   filteredDividends,
                   darfRows,
                   selectedYear,
@@ -840,7 +852,13 @@ export default function Taxes() {
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(
                   wb,
-                  buildBensSheet(assets, transactions, selectedYear, portfolioFilter),
+                  buildBensSheet(
+                    assets,
+                    transactions,
+                    corporateActions,
+                    selectedYear,
+                    portfolioFilter
+                  ),
                   "Bens e Direitos",
                 );
                 downloadXlsx(wb, `bens-e-direitos-${selectedYear}.xlsx`);

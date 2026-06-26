@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Upload, X, FileSpreadsheet, Download, HelpCircle, Copy } from "lucide-react";
+import { Upload, X, FileSpreadsheet, Download, HelpCircle, Copy, AlertTriangle, Info } from "lucide-react";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 
@@ -26,8 +26,18 @@ import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { usePortfolios } from "@/hooks/usePortfolios";
 import { useAssets } from "@/hooks/useAssets";
 import { normalizeTickerForStorage, tesouroTickerToName, isCeiArtifactName } from "@/lib/ticker";
-import { buildImportDedupKey } from "@/lib/import-dedup";
-import type { Transaction, Dividend, Asset, CashMovement } from "@/types/financial";
+import { buildImportDedupKey, buildImportedMovementFingerprint } from "@/lib/import-dedup";
+import {
+  classifyB3Movement,
+  type B3MovementClassificationResult,
+} from "@/lib/b3-movement-classifier";
+import type {
+  Transaction,
+  Dividend,
+  Asset,
+  CashMovement,
+  ImportedMovement,
+} from "@/types/financial";
 
 type FileType = "negociacao" | "movimentacao" | "fundos" | null;
 
@@ -42,6 +52,7 @@ interface NegociacaoRow {
 }
 
 interface MovimentacaoRow {
+  direction: string;
   date: string;
   movementType: string;
   productName: string;
@@ -49,8 +60,16 @@ interface MovimentacaoRow {
   quantity: number;
   pricePerShare: number;
   value: number;
+  classification: B3MovementClassificationResult;
   selected: boolean;
 }
+
+const movementClassificationLabel = {
+  accounting: "Contabilizar",
+  corporate_action: "Evento",
+  informational: "Informativa",
+  pending: "Revisar",
+} as const;
 
 // Fundos de investimento (CNPJ) e Tesouro Direto: ativos cujo identificador
 // não é um ticker de bolsa, então têm parser/tipo próprios.
@@ -93,6 +112,17 @@ function parseDateBR(dateStr: string): number {
   const [d, m, y] = dateStr.split("/").map(Number);
   if (!d || !m || !y) return Date.now();
   return new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
+}
+
+function buildMovementFingerprint(row: MovimentacaoRow) {
+  return buildImportedMovementFingerprint({
+    direction: row.direction,
+    movementType: row.movementType,
+    productName: row.productName,
+    date: parseDateBR(row.date),
+    quantity: row.quantity,
+    value: row.value,
+  });
 }
 
 // Converts B3 Tesouro Direto product names to TD: ticker format.
@@ -214,6 +244,8 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     getTransactions,
     getDividends,
     getCashMovements,
+    getImportedMovements,
+    saveImportedMovementsBulk,
   } = useSecureStorage();
   const { portfolios } = usePortfolios();
   const { refresh: refreshAssets } = useAssets();
@@ -420,13 +452,22 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       const row = rows[i];
       if (!row || row.length < 8) continue;
 
-      const [, dateStr, movementType, productName, , qty, pricePerShare, value] = row;
+      const [direction, dateStr, movementType, productName, , qty, pricePerShare, value] = row;
 
       if (!dateStr || !productName) continue;
 
       const ticker = extractTicker(String(productName));
 
+      const classification = classifyB3Movement({
+        movementType: String(movementType || ""),
+        direction: String(direction || ""),
+        productName: String(productName),
+        quantity: Number(qty) || 0,
+        value: Number(value) || 0,
+      });
+
       parsed.push({
+        direction: String(direction || ""),
         date: String(dateStr),
         movementType: String(movementType || ""),
         productName: String(productName),
@@ -434,7 +475,8 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         quantity: Number(qty) || 0,
         pricePerShare: Number(pricePerShare) || 0,
         value: Number(value) || 0,
-        selected: true,
+        classification,
+        selected: classification.selectedByDefault,
       });
     }
 
@@ -499,7 +541,11 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       );
     } else if (fileType === "movimentacao") {
       setMovimentacaoRows((prev) =>
-        prev.map((r, i) => (i === index ? { ...r, selected: !r.selected } : r))
+        prev.map((r, i) =>
+          i === index && r.classification.classification === "accounting"
+            ? { ...r, selected: !r.selected }
+            : r
+        )
       );
     } else if (fileType === "fundos") {
       setFundoRows((prev) =>
@@ -512,7 +558,12 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     if (fileType === "negociacao") {
       setNegociacaoRows((prev) => prev.map((r) => ({ ...r, selected: true })));
     } else if (fileType === "movimentacao") {
-      setMovimentacaoRows((prev) => prev.map((r) => ({ ...r, selected: true })));
+      setMovimentacaoRows((prev) =>
+        prev.map((r) => ({
+          ...r,
+          selected: r.classification.classification === "accounting",
+        }))
+      );
     } else if (fileType === "fundos") {
       setFundoRows((prev) => prev.map((r) => ({ ...r, selected: true })));
     }
@@ -626,7 +677,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       if (fileType === "negociacao") {
         summary = await importNegociacoes();
       } else if (fileType === "movimentacao") {
-        summary = await importMovimentacoes();
+        summary = await importClassifiedMovimentacoes();
       } else if (fileType === "fundos") {
         summary = await importFundos();
       }
@@ -1005,6 +1056,234 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     }.`;
   };
 
+  const importClassifiedMovimentacoes = async () => {
+    const localAssetByTicker = await buildAssetMap();
+    const newAssets: Asset[] = [];
+    const newTransactions: Transaction[] = [];
+    const newDividends: Dividend[] = [];
+    const auditRecords: ImportedMovement[] = [];
+
+    const [existingDividends, allTransactions, existingAudit] = await Promise.all([
+      getDividends(),
+      getTransactions(),
+      getImportedMovements(),
+    ]);
+
+    const existingEffectKeys = new Set<string>();
+    for (const dividend of existingDividends) {
+      existingEffectKeys.add(
+        buildImportDedupKey({
+          scope: `div:${dividend.assetId}:${dividend.type}`,
+          date: dividend.paymentDate,
+          quantity: dividend.shares,
+          value: dividend.totalValue,
+        })
+      );
+    }
+    for (const transaction of allTransactions) {
+      existingEffectKeys.add(
+        buildImportDedupKey({
+          scope: `tx:${transaction.assetId}:${transaction.type}`,
+          date: transaction.date,
+          quantity: transaction.shares,
+          value: transaction.totalValue,
+        })
+      );
+    }
+
+    const existingFingerprints = new Set(existingAudit.map((record) => record.fingerprint));
+    const batchFingerprints = new Set<string>();
+    const batchEffectKeys = new Set<string>();
+    const txsByAsset = new Map<string, Transaction[]>();
+    for (const transaction of allTransactions) {
+      const list = txsByAsset.get(transaction.assetId) ?? [];
+      list.push(transaction);
+      txsByAsset.set(transaction.assetId, list);
+    }
+
+    let duplicateCount = 0;
+
+    for (const row of movimentacaoRows) {
+      const fingerprint = buildMovementFingerprint(row);
+      if (existingFingerprints.has(fingerprint) || batchFingerprints.has(fingerprint)) {
+        duplicateCount++;
+        continue;
+      }
+      batchFingerprints.add(fingerprint);
+
+      const audit: ImportedMovement = {
+        id: crypto.randomUUID(),
+        source: "b3_movement",
+        fingerprint,
+        rawDescription: [
+          row.direction,
+          row.movementType,
+          row.productName,
+          row.quantity,
+          row.pricePerShare,
+          row.value,
+        ].join(" | "),
+        movementType: row.movementType,
+        direction: row.direction,
+        productName: row.productName,
+        ticker: row.ticker,
+        date: parseDateBR(row.date),
+        quantity: row.quantity,
+        unitPrice: row.pricePerShare,
+        value: row.value,
+        classification: row.classification.classification,
+        suggestedCorporateActionType: row.classification.suggestedCorporateActionType,
+        reason: row.classification.reason,
+        status:
+          row.classification.classification === "pending"
+            ? "pending"
+            : row.classification.classification === "informational" || !row.selected
+              ? "informational"
+              : "applied",
+        linkedRecordIds: [],
+        createdAt: Date.now(),
+      };
+      auditRecords.push(audit);
+
+      if (audit.status !== "applied") continue;
+
+      const tdTicker = extractTesouroTicker(row.productName);
+      const tickerResult = tickerSchema.safeParse(tdTicker ?? row.ticker);
+      if (!tickerResult.success) {
+        audit.classification = "pending";
+        audit.status = "pending";
+        audit.reason = "Ativo nao identificado; selecione o ativo durante a revisao.";
+        continue;
+      }
+
+      const ticker = tickerResult.data;
+      const asset = resolveOrStageAsset(
+        localAssetByTicker,
+        newAssets,
+        ticker,
+        tdTicker
+          ? (tesouroTickerToName(tdTicker) ?? row.productName)
+          : normalizeAssetName(row.productName, ticker),
+        tdTicker ? "fixed_income" : undefined
+      );
+      if (!asset) {
+        audit.classification = "pending";
+        audit.status = "pending";
+        audit.reason = "Selecione um portfolio para criar ou associar o ativo.";
+        continue;
+      }
+
+      const movement = row.movementType.toLowerCase();
+      if (
+        tdTicker &&
+        (movement.includes("compra") ||
+          movement.includes("venda") ||
+          movement.includes("resgate") ||
+          movement.includes("transfer"))
+      ) {
+        const type = movement.includes("venda") || movement.includes("resgate") ? "sell" : "buy";
+        const quantity = row.quantity > 0 ? row.quantity : 1;
+        const effectKey = buildImportDedupKey({
+          scope: `tx:${asset.id}:${type}`,
+          date: audit.date,
+          quantity,
+          value: row.value,
+        });
+        if (existingEffectKeys.has(effectKey) || batchEffectKeys.has(effectKey)) {
+          audit.status = "informational";
+          audit.reason = `${audit.reason} Efeito contabil duplicado ignorado.`;
+          duplicateCount++;
+          continue;
+        }
+        batchEffectKeys.add(effectKey);
+        const id = crypto.randomUUID();
+        newTransactions.push({
+          id,
+          assetId: asset.id,
+          portfolioId: asset.portfolioId,
+          type,
+          shares: quantity,
+          pricePerShare:
+            row.pricePerShare > 0 ? row.pricePerShare : Math.abs(row.value) / quantity,
+          fees: 0,
+          totalValue: Math.abs(row.value),
+          date: audit.date,
+          notes: `Importado B3 • ${row.movementType}`,
+          createdAt: Date.now(),
+        });
+        audit.linkedRecordIds.push(id);
+        continue;
+      }
+
+      const dividendType = row.classification.accountingType;
+      if (
+        dividendType !== "dividend" &&
+        dividendType !== "jcp" &&
+        dividendType !== "yield" &&
+        dividendType !== "stock_lending"
+      ) {
+        audit.classification = "pending";
+        audit.status = "pending";
+        audit.reason = "Tratamento contabil nao confirmado.";
+        continue;
+      }
+
+      const effectKey = buildImportDedupKey({
+        scope: `div:${asset.id}:${dividendType}`,
+        date: audit.date,
+        quantity: row.quantity,
+        value: row.value,
+      });
+      if (existingEffectKeys.has(effectKey) || batchEffectKeys.has(effectKey)) {
+        audit.status = "informational";
+        audit.reason = `${audit.reason} Efeito contabil duplicado ignorado.`;
+        duplicateCount++;
+        continue;
+      }
+      batchEffectKeys.add(effectKey);
+
+      let sharesOnDate = row.quantity > 0 ? row.quantity : 0;
+      if (sharesOnDate === 0) {
+        for (const transaction of txsByAsset.get(asset.id) ?? []) {
+          if (transaction.date <= audit.date) {
+            sharesOnDate += transaction.type === "buy" ? transaction.shares : -transaction.shares;
+          }
+        }
+        sharesOnDate = Math.max(0, Math.round(sharesOnDate * 1e8) / 1e8);
+      }
+
+      const id = crypto.randomUUID();
+      newDividends.push({
+        id,
+        assetId: asset.id,
+        portfolioId: asset.portfolioId,
+        type: dividendType,
+        valuePerShare:
+          sharesOnDate > 0 ? Math.abs(row.value) / sharesOnDate : row.pricePerShare,
+        shares: sharesOnDate,
+        grossValue: Math.abs(row.value),
+        taxWithheld: 0,
+        totalValue: Math.abs(row.value),
+        paymentDate: audit.date,
+        createdAt: Date.now(),
+      });
+      audit.linkedRecordIds.push(id);
+    }
+
+    await saveAssetsBulk(newAssets);
+    await saveTransactionsBulk(newTransactions);
+    await saveDividendsBulk(newDividends);
+    await saveImportedMovementsBulk(auditRecords);
+
+    const pending = auditRecords.filter((record) => record.status === "pending").length;
+    const informational = auditRecords.filter(
+      (record) => record.status === "informational"
+    ).length;
+    return `${newAssets.length} ativos novos, ${newTransactions.length} transacoes, ${newDividends.length} proventos, ${informational} informativas, ${pending} pendentes${
+      duplicateCount ? `, ${duplicateCount} duplicadas ignoradas` : ""
+    }.`;
+  };
+
   const importFundos = async () => {
     const selected = fundoRows.filter((r) => r.selected);
     const localAssetByTicker = await buildAssetMap();
@@ -1284,6 +1563,9 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
                   <th className="w-12 px-3 py-2"></th>
                   <th className="px-3 py-2 text-left">Data</th>
                   <th className="px-3 py-2 text-left">Tipo</th>
+                  {fileType === "movimentacao" && (
+                    <th className="px-3 py-2 text-left">Tratamento</th>
+                  )}
                   <th className="px-3 py-2 text-left">Ativo</th>
                   <th className="px-3 py-2 text-right">Qtd</th>
                   <th className="px-3 py-2 text-right">Preço</th>
@@ -1334,10 +1616,31 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
                         <Checkbox
                           checked={row.selected}
                           onCheckedChange={() => toggleRowSelection(index)}
+                          disabled={row.classification.classification !== "accounting"}
                         />
                       </td>
                       <td className="px-3 py-2">{row.date}</td>
                       <td className="px-3 py-2 text-xs">{row.movementType}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5" title={row.classification.reason}>
+                          {row.classification.classification === "pending" ? (
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                          ) : (
+                            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                          <span
+                            className={
+                              row.classification.classification === "pending"
+                                ? "text-xs font-medium text-warning"
+                                : row.classification.classification === "accounting"
+                                  ? "text-xs font-medium text-success"
+                                  : "text-xs text-muted-foreground"
+                            }
+                          >
+                            {movementClassificationLabel[row.classification.classification]}
+                          </span>
+                        </div>
+                      </td>
                       <td className="px-3 py-2 font-mono font-semibold">{row.ticker}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{row.quantity || "-"}</td>
                       <td className="px-3 py-2 text-right tabular-nums">
@@ -1390,8 +1693,8 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
             >
               Cancelar
             </Button>
-            <Button onClick={handleImport} disabled={isImporting || selectedCount === 0}>
-              {isImporting ? "Importando..." : `Importar ${selectedCount} movimentações`}
+            <Button onClick={handleImport} disabled={isImporting || totalCount === 0}>
+              {isImporting ? "Processando..." : `Processar ${totalCount} registros`}
             </Button>
           </div>
         </>

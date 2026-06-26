@@ -26,7 +26,15 @@ import { cn } from "@/lib/utils";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
 import { useAssets } from "@/hooks/useAssets";
 import { useToast } from "@/hooks/use-toast";
-import type { Asset, CashMovement, Dividend, Portfolio, Transaction } from "@/types/financial";
+import type {
+  Asset,
+  CashMovement,
+  CorporateAction,
+  Dividend,
+  ImportedMovement,
+  Portfolio,
+  Transaction,
+} from "@/types/financial";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -55,6 +63,7 @@ import {
 } from "@/components/ui/select";
 import { MovementEditDialog } from "@/components/transactions/MovementEditDialog";
 import { BackupRestoreDialog } from "@/components/backup/BackupRestoreDialog";
+import { MovementAuditPanel } from "@/components/transactions/MovementAuditPanel";
 
 const PAGE_SIZE = 50;
 
@@ -68,7 +77,8 @@ type MovementCategory =
   | "dividend_dividend"
   | "dividend_jcp"
   | "dividend_yield"
-  | "dividend_bonus";
+  | "dividend_bonus"
+  | "dividend_stock_lending";
 
 type MovementRow = {
   id: string;
@@ -100,11 +110,13 @@ const categoryConfig: Record<
   dividend_dividend: { label: "Dividendo", icon: Coins, color: "text-warning", bg: "bg-warning-muted" },
   dividend_jcp: { label: "JCP", icon: Percent, color: "text-chart-3", bg: "bg-secondary" },
   dividend_yield: { label: "Rendimento", icon: TrendingUp, color: "text-success", bg: "bg-success-muted" },
+  dividend_stock_lending: { label: "Aluguel", icon: Coins, color: "text-chart-3", bg: "bg-secondary" },
   dividend_bonus: { label: "Bônus", icon: Gift, color: "text-chart-2", bg: "bg-accent" },
 };
 
 const categoryOrder: MovementCategory[] = [
   "buy", "sell", "deposit", "withdraw",
+  "dividend_stock_lending",
   "dividend_dividend", "dividend_jcp", "dividend_yield", "dividend_bonus",
 ];
 
@@ -130,6 +142,8 @@ export default function Transactions() {
     getDividends,
     getCashMovements,
     getPortfolios,
+    getCorporateActions,
+    getImportedMovements,
     deleteTransaction,
     deleteDividend,
     deleteCashMovement,
@@ -143,6 +157,8 @@ export default function Transactions() {
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [cashMovements, setCashMovements] = useState<CashMovement[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [corporateActions, setCorporateActions] = useState<CorporateAction[]>([]);
+  const [importedMovements, setImportedMovements] = useState<ImportedMovement[]>([]);
 
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -151,16 +167,20 @@ export default function Transactions() {
   const load = useCallback(async () => {
     if (!isUnlocked) return;
     try {
-      const [tx, dv, cm, ps] = await Promise.all([
+      const [tx, dv, cm, ps, actions, imported] = await Promise.all([
         getTransactions(),
         getDividends(),
         getCashMovements(),
         getPortfolios(),
+        getCorporateActions(),
+        getImportedMovements(),
       ]);
       setTransactions(tx);
       setDividends(dv);
       setCashMovements(cm);
       setPortfolios(ps);
+      setCorporateActions(actions);
+      setImportedMovements(imported);
     } catch (err) {
       console.error("[Transactions] Failed to load movements:", err);
       toast({
@@ -169,7 +189,16 @@ export default function Transactions() {
         variant: "destructive",
       });
     }
-  }, [getTransactions, getDividends, getCashMovements, getPortfolios, isUnlocked, toast]);
+  }, [
+    getTransactions,
+    getDividends,
+    getCashMovements,
+    getPortfolios,
+    getCorporateActions,
+    getImportedMovements,
+    isUnlocked,
+    toast,
+  ]);
 
   useEffect(() => {
     load();
@@ -381,6 +410,63 @@ export default function Transactions() {
     return assets.filter((a) => assetIds.has(a.id));
   }, [assets, movements, yearFilter]);
 
+  const legacyCandidates = useMemo<ImportedMovement[]>(() => {
+    const linkedIds = new Set(importedMovements.flatMap((movement) => movement.linkedRecordIds));
+    const now = Date.now();
+    const transactionCandidates = transactions
+      .filter(
+        (transaction) =>
+          transaction.notes?.toLowerCase().includes("importado b3") &&
+          !linkedIds.has(transaction.id)
+      )
+      .map<ImportedMovement>((transaction) => ({
+        id: crypto.randomUUID(),
+        source: "b3_negotiation",
+        fingerprint: `legacy:transaction:${transaction.id}`,
+        rawDescription: transaction.notes ?? "Importado B3",
+        movementType: transaction.type === "buy" ? "Compra" : "Venda",
+        ticker: assetById.get(transaction.assetId)?.ticker,
+        date: transaction.date,
+        quantity: transaction.shares,
+        unitPrice: transaction.pricePerShare,
+        value: transaction.totalValue,
+        classification: "accounting",
+        reason: "Lancamento antigo reconhecido como compra ou venda ja contabilizada.",
+        status: "applied",
+        linkedRecordIds: [transaction.id],
+        createdAt: now,
+      }));
+    const cashCandidates = cashMovements
+      .filter(
+        (movement) =>
+          movement.notes?.toLowerCase().includes("importado b3") &&
+          !linkedIds.has(movement.id)
+      )
+      .map<ImportedMovement>((movement) => {
+        const isRefund = movement.notes?.toLowerCase().includes("reembolso");
+        return {
+          id: crypto.randomUUID(),
+          source: "b3_movement",
+          fingerprint: `legacy:cash:${movement.id}`,
+          rawDescription: movement.notes ?? "Importado B3",
+          movementType: isRefund ? "Reembolso" : "Movimento de caixa",
+          date: movement.date,
+          quantity: 0,
+          unitPrice: 0,
+          value: movement.value,
+          classification: isRefund ? "pending" : "informational",
+          suggestedCorporateActionType: isRefund ? "amortization" : undefined,
+          reason: isRefund
+            ? "Reembolso antigo pode exigir ajuste do custo do ativo."
+            : "Registro antigo mantido sem alterar posicao.",
+          status: isRefund ? "pending" : "informational",
+          linkedRecordIds: [movement.id],
+          createdAt: now,
+        };
+      });
+    return [...transactionCandidates, ...cashCandidates];
+  }, [assetById, cashMovements, importedMovements, transactions]);
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -524,6 +610,16 @@ export default function Transactions() {
             </div>
           </div>
         </motion.section>
+
+        <MovementAuditPanel
+          importedMovements={importedMovements}
+          corporateActions={corporateActions}
+          assets={assets}
+          portfolios={portfolios}
+          accountingCount={movements.length}
+          legacyCandidates={legacyCandidates}
+          onChanged={load}
+        />
 
         <MovementEditDialog
           open={editOpen}

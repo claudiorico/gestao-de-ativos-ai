@@ -40,6 +40,7 @@ const dividendTypeLabel: Record<Dividend["type"], string> = {
   dividend: "Dividendo",
   jcp: "JCP",
   yield: "Rendimento",
+  stock_lending: "Aluguel de ativos",
   bonus: "Bônus",
 };
 

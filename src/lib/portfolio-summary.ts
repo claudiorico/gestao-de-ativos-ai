@@ -1,4 +1,5 @@
-import type { Asset, Portfolio, Transaction } from "@/types/financial";
+import type { Asset, CorporateAction, Portfolio, Transaction } from "@/types/financial";
+import { computePositionsWithCorporateActions } from "@/lib/corporate-action-engine";
 
 export interface PortfolioQuote {
   price?: number;
@@ -47,6 +48,7 @@ interface ComputePortfolioSummariesInput {
   portfolios: Portfolio[];
   assets: Asset[];
   transactions: Transaction[];
+  corporateActions?: CorporateAction[];
   quotes?: Record<string, PortfolioQuote | undefined>;
   positionsByAssetId?: Map<string, AssetPosition>;
 }
@@ -80,51 +82,12 @@ function getQuoteForAsset(
   return quotes[quoteKey] ?? quotes[quoteKey.replace(/\.SA$/i, "")];
 }
 
-export function computeAssetPositions(transactions: Transaction[]) {
-  const map = new Map<string, AssetPosition>();
-  const byAsset = new Map<string, Transaction[]>();
-
-  for (const t of transactions) {
-    const list = byAsset.get(t.assetId) ?? [];
-    list.push(t);
-    byAsset.set(t.assetId, list);
-  }
-
-  for (const [assetId, txs] of byAsset.entries()) {
-    const ordered = [...txs].sort((a, b) => a.date - b.date);
-    let shares = 0;
-    let cost = 0;
-
-    for (const tx of ordered) {
-      const qty = Number(tx.shares ?? 0);
-      const total = Number(tx.totalValue ?? 0);
-      const fees = Number(tx.fees ?? 0);
-      if (!Number.isFinite(qty) || qty === 0) continue;
-
-      if (tx.type === "buy") {
-        shares += qty;
-        cost += (Number.isFinite(total) ? total : 0) + (Number.isFinite(fees) ? fees : 0);
-      } else {
-        const avg = shares > 0 ? cost / shares : 0;
-        const sellQty = Math.min(shares, qty);
-        shares -= sellQty;
-        cost -= avg * sellQty;
-      }
-
-      if (shares <= HOLDING_EPS) {
-        shares = 0;
-        cost = 0;
-      }
-    }
-
-    map.set(assetId, {
-      shares,
-      openCostBasis: cost,
-      averagePrice: shares > 0 ? cost / shares : 0,
-    });
-  }
-
-  return map;
+export function computeAssetPositions(
+  transactions: Transaction[],
+  corporateActions: CorporateAction[] = [],
+  cutoffDate = Number.POSITIVE_INFINITY
+) {
+  return computePositionsWithCorporateActions(transactions, corporateActions, cutoffDate);
 }
 
 export function isPricedAssetType(type: Asset["type"]) {
@@ -174,6 +137,7 @@ export function buildPortfolioDataSignature(input: {
   portfolios: Portfolio[];
   assets: Asset[];
   transactions: Transaction[];
+  corporateActions?: CorporateAction[];
 }) {
   const portfolioPart = input.portfolios
     .map((p) => `${p.id}:${p.updatedAt}`)
@@ -187,20 +151,39 @@ export function buildPortfolioDataSignature(input: {
     .map((t) => `${t.id}:${t.createdAt}:${t.type}:${t.date}:${t.shares}:${t.pricePerShare}:${t.totalValue}:${t.fees}`)
     .sort()
     .join("|");
+  const corporateActionPart = (input.corporateActions ?? [])
+    .map((action) =>
+      [
+        action.id,
+        action.status,
+        action.type,
+        action.date,
+        action.assetId,
+        action.destinationAssetId ?? "",
+        action.ratioNumerator ?? "",
+        action.ratioDenominator ?? "",
+        action.quantityChange ?? "",
+        action.costBasisChange ?? "",
+      ].join(":")
+    )
+    .sort()
+    .join("|");
 
-  return `p=${portfolioPart};a=${assetPart};t=${transactionPart}`;
+  return `p=${portfolioPart};a=${assetPart};t=${transactionPart};c=${corporateActionPart}`;
 }
 
 export function computePortfolioSummaries({
   portfolios,
   assets,
   transactions,
+  corporateActions = [],
   quotes = {},
   positionsByAssetId,
 }: ComputePortfolioSummariesInput): PortfolioWithAssets[] {
   if (portfolios.length === 0 && assets.length === 0) return [];
 
-  const assetPositions = positionsByAssetId ?? computeAssetPositions(transactions);
+  const assetPositions =
+    positionsByAssetId ?? computeAssetPositions(transactions, corporateActions);
 
   const enrichedAssets: AssetWithPrice[] = assets.map((asset) => {
     const position = assetPositions.get(asset.id);

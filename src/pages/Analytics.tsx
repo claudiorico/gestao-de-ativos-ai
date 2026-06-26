@@ -13,7 +13,7 @@ import {
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
-import type { Asset, Dividend, Transaction } from "@/types/financial";
+import type { Asset, CorporateAction, Dividend, Transaction } from "@/types/financial";
 import { usePrices } from "@/hooks/usePrices";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 import { Blur } from "@/components/ui/blur";
@@ -64,49 +64,50 @@ function sumSafe(n: number) {
 }
 
 // Returns shares held per assetId at a given point in time, derived from transactions
-function computeSharesAtDate(transactions: Transaction[], dateMs: number): Map<string, number> {
-  const byAsset = new Map<string, number>();
-  for (const t of transactions) {
-    if (t.date > dateMs) continue;
-    const cur = byAsset.get(t.assetId) ?? 0;
-    byAsset.set(t.assetId, cur + (t.type === "buy" ? t.shares : -t.shares));
-  }
-  return byAsset;
+function computeSharesAtDate(
+  transactions: Transaction[],
+  corporateActions: CorporateAction[],
+  dateMs: number
+): Map<string, number> {
+  return new Map(
+    Array.from(computeAssetPositions(transactions, corporateActions, dateMs)).map(
+      ([assetId, position]) => [assetId, position.shares]
+    )
+  );
 }
 
-// Returns current shares held per assetId from all transactions
-function computeNetSharesNow(transactions: Transaction[]): Map<string, number> {
-  return computeSharesAtDate(transactions, Date.now());
+function computeNetSharesNow(
+  transactions: Transaction[],
+  corporateActions: CorporateAction[]
+): Map<string, number> {
+  return computeSharesAtDate(transactions, corporateActions, Date.now());
 }
 
-function computeOpenCostBasisAtDate(transactions: Transaction[], dateMs: number): number {
-  const costByAsset = new Map<string, { qty: number; cost: number }>();
-  const sorted = [...transactions].filter((t) => t.date <= dateMs).sort((a, b) => a.date - b.date);
-  for (const t of sorted) {
-    const pos = costByAsset.get(t.assetId) ?? { qty: 0, cost: 0 };
-    if (t.type === "buy") {
-      pos.cost += sumSafe(t.totalValue) + sumSafe(t.fees);
-      pos.qty += sumSafe(t.shares);
-    } else {
-      const avg = pos.qty > 0 ? pos.cost / pos.qty : 0;
-      const soldQty = Math.min(sumSafe(t.shares), pos.qty);
-      pos.qty = Math.max(0, pos.qty - soldQty);
-      pos.cost = Math.max(0, pos.cost - avg * soldQty);
-    }
-    costByAsset.set(t.assetId, pos);
-  }
+function computeOpenCostBasisAtDate(
+  transactions: Transaction[],
+  corporateActions: CorporateAction[],
+  dateMs: number
+): number {
   let total = 0;
-  for (const { cost } of costByAsset.values()) total += cost;
+  for (const { openCostBasis } of computeAssetPositions(
+    transactions,
+    corporateActions,
+    dateMs
+  ).values()) {
+    total += openCostBasis;
+  }
   return total;
 }
 
 export default function Analytics() {
-  const { isUnlocked, getAssets, getTransactions, getDividends } = useSecureStorage();
+  const { isUnlocked, getAssets, getTransactions, getDividends, getCorporateActions } =
+    useSecureStorage();
   const { quotes, fetchQuotes, isLoading: isPricesLoading, error: pricesError } = usePrices();
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
+  const [corporateActions, setCorporateActions] = useState<CorporateAction[]>([]);
   const [historyByTicker, setHistoryByTicker] = useState<Record<string, HistoryPoint[]>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export default function Analytics() {
       setAssets([]);
       setTransactions([]);
       setDividends([]);
+      setCorporateActions([]);
       setHistoryByTicker({});
       setLoadError(null);
       return;
@@ -126,15 +128,17 @@ export default function Analytics() {
       try {
         setIsLoading(true);
         setLoadError(null);
-        const [a, tx, dv] = await Promise.all([
+        const [a, tx, dv, actions] = await Promise.all([
           getAssets(),
           getTransactions(),
           getDividends(),
+          getCorporateActions(),
         ]);
         if (!mounted) return;
         setAssets(a);
         setTransactions(tx);
         setDividends(dv);
+        setCorporateActions(actions);
       } catch (e) {
         console.error("[Analytics] load failed", e);
         if (!mounted) return;
@@ -151,9 +155,12 @@ export default function Analytics() {
       mounted = false;
       window.removeEventListener("vault-data-changed", onChanged);
     };
-  }, [getAssets, getDividends, getTransactions, isUnlocked]);
+  }, [getAssets, getCorporateActions, getDividends, getTransactions, isUnlocked]);
 
-  const derivedSharesNowByAssetId = useMemo(() => computeNetSharesNow(transactions), [transactions]);
+  const derivedSharesNowByAssetId = useMemo(
+    () => computeNetSharesNow(transactions, corporateActions),
+    [corporateActions, transactions]
+  );
 
   const tickers = useMemo(() => {
     return Array.from(
@@ -227,8 +234,8 @@ export default function Analytics() {
     if (!isUnlocked) return [];
 
     return months.map(({ key, t }) => {
-      const sharesAt = computeSharesAtDate(transactions, t);
-      const costBasis = computeOpenCostBasisAtDate(transactions, t);
+      const sharesAt = computeSharesAtDate(transactions, corporateActions, t);
+      const costBasis = computeOpenCostBasisAtDate(transactions, corporateActions, t);
 
       // Total dividends accumulated up to this point
       const totalDividends = dividends
@@ -263,7 +270,7 @@ export default function Analytics() {
         totalDividends,
       };
     });
-  }, [assets, dividends, historyByTicker, isUnlocked, months, quotes, transactions, transactionsByAssetId]);
+  }, [assets, corporateActions, dividends, historyByTicker, isUnlocked, months, quotes, transactions, transactionsByAssetId]);
 
   // Summary cards: use current quotes for live portfolio value
   const summary = useMemo(() => {
@@ -284,7 +291,7 @@ export default function Analytics() {
       currentValue += shares * sumSafe(price);
     }
 
-    const positionsByAsset = computeAssetPositions(transactions);
+    const positionsByAsset = computeAssetPositions(transactions, corporateActions);
     let costBasis = 0;
     for (const { openCostBasis } of positionsByAsset.values()) costBasis += sumSafe(openCostBasis);
 
@@ -294,7 +301,7 @@ export default function Analytics() {
     const returnPct = costBasis > 0 ? (result / costBasis) * 100 : 0;
 
     return { currentValue, costBasis, result, returnPct, totalDividends };
-  }, [assets, derivedSharesNowByAssetId, dividends, quotes, transactions, transactionsByAssetId]);
+  }, [assets, corporateActions, derivedSharesNowByAssetId, dividends, quotes, transactions, transactionsByAssetId]);
 
   const hasData = isUnlocked && (assets.length > 0 || transactions.length > 0);
 

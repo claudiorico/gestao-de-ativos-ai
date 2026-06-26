@@ -402,6 +402,7 @@ export function MovementEditDialog({ open, onOpenChange, target, portfolios, ass
                       <SelectItem value="dividend">Dividendo</SelectItem>
                       <SelectItem value="jcp">JCP</SelectItem>
                       <SelectItem value="yield">Rendimento</SelectItem>
+                      <SelectItem value="stock_lending">Aluguel de ativos</SelectItem>
                       <SelectItem value="bonus">Bônus</SelectItem>
                     </SelectContent>
                   </Select>

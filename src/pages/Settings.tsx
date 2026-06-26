@@ -462,6 +462,8 @@ export default function Settings() {
         transactions: backup.data.transactions,
         dividends: backup.data.dividends,
         cash_movements: backup.data.cash_movements,
+        corporate_actions: backup.data.corporate_actions,
+        imported_movements: backup.data.imported_movements,
         settings: backup.data.settings,
         metadata: backup.data.metadata,
       });

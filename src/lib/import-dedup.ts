@@ -37,3 +37,26 @@ export function buildImportDedupKey(input: {
   // Keep as a string key for Set/Map.
   return `${input.scope}|${input.date}|${qty}|${val}`;
 }
+
+export function buildImportedMovementFingerprint(input: {
+  direction?: string;
+  movementType: string;
+  productName?: string;
+  date: number;
+  quantity?: number;
+  value: number;
+}) {
+  const normalize = (value: unknown) =>
+    String(value ?? "").trim().toLocaleLowerCase("pt-BR");
+  return buildImportDedupKey({
+    scope: [
+      "b3-movement",
+      normalize(input.direction),
+      normalize(input.movementType),
+      normalize(input.productName),
+    ].join(":"),
+    date: input.date,
+    quantity: input.quantity,
+    value: input.value,
+  });
+}
