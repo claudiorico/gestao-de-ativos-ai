@@ -150,7 +150,8 @@ export function openDatabase(): Promise<IDBDatabase> {
 
     request.onerror = () => {
       console.error('[IndexedDB] Failed to open database:', request.error);
-      reject(new Error('Failed to open database'));
+      const detail = request.error?.name ? `: ${request.error.name}` : '';
+      reject(new Error(`Failed to open database${detail}`));
     };
 
     request.onsuccess = () => {

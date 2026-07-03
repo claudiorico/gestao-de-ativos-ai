@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, Eye, EyeOff, Lock, AlertTriangle, HardDrive, Database, ArrowRight } from 'lucide-react';
+import { Shield, Eye, EyeOff, Lock, AlertTriangle, HardDrive, Database, ArrowRight, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,7 +20,7 @@ interface VaultSetupProps {
 }
 
 export function VaultSetup({ onComplete }: VaultSetupProps) {
-  const { initializeVault, isLoading, localHasData, migrateFromLocal } = useSecureStorage();
+  const { initializeVault, isLoading, localHasData, migrateFromLocal, wipeAllData } = useSecureStorage();
   const { user } = useAuthUser();
   const namespace = user?.uid || 'default';
 
@@ -28,6 +28,8 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [storageRecoveryNeeded, setStorageRecoveryNeeded] = useState(false);
+  const [isResettingStorage, setIsResettingStorage] = useState(false);
 
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [persistBusy, setPersistBusy] = useState(false);
@@ -106,7 +108,34 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
 
       onComplete();
     } catch (err) {
-      setError('Erro ao criar cofre seguro');
+      console.error('[VaultSetup] Failed to create vault:', err);
+      setStorageRecoveryNeeded(true);
+      setError('Nao foi possivel acessar o armazenamento local do navegador. Se voce esta criando um cofre novo neste dispositivo, limpe o armazenamento local e tente novamente.');
+    }
+  };
+
+  const handleResetLocalStorage = async () => {
+    const confirmed = window.confirm(
+      'Isto apaga o cofre local deste navegador para esta conta. Use apenas se voce nao precisa recuperar dados locais ou se tem backup. Continuar?'
+    );
+    if (!confirmed) return;
+
+    setIsResettingStorage(true);
+    try {
+      await wipeAllData();
+      setPassword('');
+      setConfirmPassword('');
+      setStorageRecoveryNeeded(false);
+      setError('');
+      toast({
+        title: 'Armazenamento local limpo',
+        description: 'Recarregue a pagina e crie o cofre novamente.',
+      });
+    } catch (err) {
+      console.error('[VaultSetup] Failed to reset local storage:', err);
+      setError('Nao foi possivel limpar automaticamente. Limpe os dados do site pelo navegador e tente novamente.');
+    } finally {
+      setIsResettingStorage(false);
     }
   };
 
@@ -247,9 +276,30 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
 
             {/* Error Message */}
             {error && (
-              <div className="flex items-center gap-2 rounded-lg bg-loss-muted p-3 text-sm text-loss">
-                <AlertTriangle className="h-4 w-4" />
-                {error}
+              <div className="rounded-lg bg-loss-muted p-3 text-sm text-loss">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+                {storageRecoveryNeeded && (
+                  <div className="mt-3 space-y-2 border-t border-loss/20 pt-3">
+                    <p className="text-xs text-loss/90">
+                      Se ja existiam dados importantes neste navegador, tente primeiro abrir em outro navegador
+                      ou restaurar um backup. Se era um cofre novo, a limpeza local costuma resolver erros de IndexedDB.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-2 border-loss/30 text-loss hover:text-loss"
+                      onClick={handleResetLocalStorage}
+                      disabled={isResettingStorage}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {isResettingStorage ? 'Limpando...' : 'Limpar armazenamento local deste cofre'}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
