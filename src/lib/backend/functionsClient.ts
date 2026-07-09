@@ -2,12 +2,12 @@
  * Backend Functions client
  *
  * Goal: make deployments portable by allowing routing of backend function calls
- * either to the Supabase Edge Functions backend (default) or to an external HTTP
- * endpoint (configured at deploy time).
+ * either to the Supabase Edge Functions backend (legacy/default) or to an
+ * external HTTP endpoint such as Cloudflare Workers (configured at deploy time).
  *
  * Env vars (optional):
  * - VITE_FUNCTIONS_BASE_URL: string
- *     Example: https://bywwhnuicnxbfgbcbrxe.supabase.co/functions/v1
+ *     Example: https://cofre-investimentos-functions.USER.workers.dev
  *   If set, calls will be made via fetch(`${base}/${name}`) instead of
  *   supabase.functions.invoke(name).
  *

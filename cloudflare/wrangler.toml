@@ -1,0 +1,10 @@
+name = "cofre-investimentos-functions"
+main = "./worker.ts"
+compatibility_date = "2026-07-08"
+
+[observability]
+enabled = true
+
+[vars]
+# Comma-separated host allowlist. Add preview domains only if you want them to call the Worker.
+ALLOWED_ORIGIN_HOSTS = "cofreinvestimentos.com.br,www.cofreinvestimentos.com.br,localhost,127.0.0.1"

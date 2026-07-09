@@ -84,7 +84,7 @@ export default function Privacy() {
           <h2 className="text-lg font-semibold">4. Cotações de mercado</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
             Para buscar preços de ativos, o app envia apenas os <strong className="text-foreground">tickers</strong> (ex.: PETR4, BTC)
-            para nossas Edge Functions hospedadas no Supabase, que consultam fontes públicas como Yahoo Finance, CoinGecko,
+            para nosso backend de cotações, que consulta fontes públicas como Yahoo Finance, CoinGecko,
             CVM e B3. Nenhuma informação pessoal ou financeira é enviada nessas requisições.
           </p>
         </section>

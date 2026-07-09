@@ -148,7 +148,7 @@ export default function Help() {
         {/* Cotações */}
         <Section icon={RefreshCw} title="Cotações e preços">
           <div className="space-y-2">
-            <p>Os preços são buscados automaticamente ao abrir o app e a cada 5 minutos, usando Edge Functions no Supabase. As fontes são:</p>
+            <p>Os preços são buscados automaticamente ao abrir o app e a cada 5 minutos, usando um backend de cotações. As fontes são:</p>
             <ul className="space-y-1 list-disc list-inside">
               <li><strong className="text-foreground">Ações / FIIs / ETFs:</strong> Yahoo Finance (.SA)</li>
               <li><strong className="text-foreground">Fundos CVM:</strong> arquivo INF_DIARIO da CVM (cota diária)</li>

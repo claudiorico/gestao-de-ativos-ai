@@ -30,7 +30,7 @@ dispositivo. Nenhum servidor nosso armazena ou acessa suas informações.
 - **shadcn-ui** + **Tailwind CSS**
 - **React Router** (roteamento client-side)
 - **Login com Google** via Google Identity Services (OAuth direto, sem Firebase)
-- **Supabase** (Edge Functions de cotações) e backup no **Google Drive**
+- **Cloudflare Workers** (cotações), **Supabase** opcional/legado e backup no **Google Drive**
 
 ## Desenvolvimento local
 
@@ -91,7 +91,25 @@ npm run preview    # serve o build localmente para conferência
 O `vercel.json` já inclui o rewrite de SPA, garantindo que rotas profundas (ex.: `/portfolio`)
 funcionem ao recarregar a página.
 
-## Backend (Supabase Edge Functions)
+## Backend de cotações (Cloudflare Workers)
+
+As cotações usam os endpoints `get-quotes` e `get-price-history`. O backend recomendado é
+Cloudflare Workers:
+
+```sh
+npm run worker:deploy
+```
+
+Depois do deploy, configure no Vercel:
+
+```sh
+VITE_FUNCTIONS_BASE_URL=https://SEU-WORKER.workers.dev
+```
+
+O Worker aceita chamadas apenas de hosts configurados em `cloudflare/wrangler.toml`
+(`ALLOWED_ORIGIN_HOSTS`). Para liberar outro domínio, atualize a lista e faça novo deploy.
+
+## Backend legado (Supabase Edge Functions)
 
 As cotações usam as functions `get-quotes` e `get-price-history`. Para atualizá-las:
 
@@ -100,6 +118,9 @@ supabase functions deploy get-quotes get-price-history
 # opcional: liberar a origem do app por host
 supabase secrets set ALLOWED_ORIGIN_HOSTS=seu-app.vercel.app
 ```
+
+Se `VITE_FUNCTIONS_BASE_URL` não estiver configurado, o app ainda usa Supabase via
+`supabase.functions.invoke(...)`.
 
 ## Contribuindo
 
