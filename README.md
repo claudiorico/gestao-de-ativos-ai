@@ -96,6 +96,24 @@ funcionem ao recarregar a página.
 As cotações usam os endpoints `get-quotes` e `get-price-history`. O backend recomendado é
 Cloudflare Workers:
 
+Antes do primeiro deploy, registre um subdomínio `workers.dev` na sua conta Cloudflare:
+
+```sh
+npx wrangler login
+npx wrangler deploy --config cloudflare/wrangler.toml
+```
+
+Se o Wrangler informar que ainda falta registrar o subdomínio, abra o link exibido no
+terminal, conclua o onboarding do Workers e rode o deploy novamente.
+
+No Windows, se o `npx` falhar com `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, execute:
+
+```powershell
+$env:NODE_OPTIONS="--use-system-ca"; npm run worker:deploy
+```
+
+Deploy normal:
+
 ```sh
 npm run worker:deploy
 ```
