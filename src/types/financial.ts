@@ -74,6 +74,14 @@ export type ImportedMovementClassification =
   | 'informational'
   | 'pending';
 
+export type ImportedMovementAccountingType =
+  | 'trade'
+  | 'dividend'
+  | 'jcp'
+  | 'yield'
+  | 'stock_lending'
+  | 'cash_refund';
+
 export interface ImportedMovement {
   id: string;
   source: 'b3_negotiation' | 'b3_movement' | 'spreadsheet';
@@ -88,6 +96,7 @@ export interface ImportedMovement {
   unitPrice: number;
   value: number;
   classification: ImportedMovementClassification;
+  accountingType?: ImportedMovementAccountingType;
   suggestedCorporateActionType?: CorporateActionType;
   reason: string;
   status: 'applied' | 'informational' | 'pending';

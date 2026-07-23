@@ -193,6 +193,8 @@ const TEMPLATE_MOVIMENTACAO = [
   "Credito;20/01/2024;Dividendo;PETR4;CORRETORA;100;0,50;50,00",
   "Credito;20/02/2024;Rendimento;HGLG11;CORRETORA;30;0,90;27,00",
   "Credito;15/03/2024;Juros Sobre Capital Próprio;ITSA4;CORRETORA;200;0,12;24,00",
+  "Credito;15/04/2024;Reembolso;BTHF11;CORRETORA;0;0;18,00",
+  "Credito;15/05/2024;Juros;Tesouro IPCA+ com Juros Semestrais 2035;CORRETORA;1;80,00;80,00",
 ].join("\n");
 
 const TEMPLATE_FUNDOS = [
@@ -213,11 +215,11 @@ Data do Negócio;Tipo de Movimentação;Mercado;Prazo/Vencimento;Instituição;C
 - Mercado = "Mercado à Vista"; Código de Negociação = o ticker (ex.: PETR4, HGLG11)
 - Valor = Quantidade × Preço
 
-2) MOVIMENTAÇÃO (proventos). Cabeçalho:
+2) MOVIMENTAÇÃO (proventos, caixa e Tesouro Direto). Cabeçalho:
 Entrada/Saída;Data;Movimentação;Produto;Instituição;Quantidade;Preço unitário;Valor da Operação
 - Entrada/Saída = "Credito"
-- Movimentação = "Rendimento" | "Dividendo" | "Juros Sobre Capital Próprio" | "Reembolso"
-- Produto = ticker; Valor da Operação = valor recebido
+- Movimentação = "Rendimento" | "Dividendo" | "Juros Sobre Capital Próprio" | "Reembolso" | "Restituição de capital"
+- Produto = ticker para bolsa ou nome do Tesouro Direto; reembolso/restituição entram como caixa
 
 3) FUNDOS/TESOURO (fundos por CNPJ e Tesouro Direto). Cabeçalho:
 ativo;classe;date;evento;quantidade;preco;valor;observacao
@@ -1061,10 +1063,12 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     const newAssets: Asset[] = [];
     const newTransactions: Transaction[] = [];
     const newDividends: Dividend[] = [];
+    const newCash: CashMovement[] = [];
     const auditRecords: ImportedMovement[] = [];
 
-    const [existingDividends, allTransactions, existingAudit] = await Promise.all([
+    const [existingDividends, existingCash, allTransactions, existingAudit] = await Promise.all([
       getDividends(),
+      getCashMovements(),
       getTransactions(),
       getImportedMovements(),
     ]);
@@ -1077,6 +1081,16 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
           date: dividend.paymentDate,
           quantity: dividend.shares,
           value: dividend.totalValue,
+        })
+      );
+    }
+    for (const movement of existingCash) {
+      existingEffectKeys.add(
+        buildImportDedupKey({
+          scope: `cash:${movement.portfolioId}:${movement.type}`,
+          date: movement.date,
+          quantity: 0,
+          value: movement.value,
         })
       );
     }
@@ -1132,6 +1146,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         unitPrice: row.pricePerShare,
         value: row.value,
         classification: row.classification.classification,
+        accountingType: row.classification.accountingType,
         suggestedCorporateActionType: row.classification.suggestedCorporateActionType,
         reason: row.classification.reason,
         status:
@@ -1148,6 +1163,51 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
       if (audit.status !== "applied") continue;
 
       const tdTicker = extractTesouroTicker(row.productName);
+      const accountingType = row.classification.accountingType;
+
+      if (accountingType === "cash_refund") {
+        const tickerResult = tickerSchema.safeParse(row.ticker);
+        const existingAsset = tickerResult.success
+          ? localAssetByTicker.get(tickerResult.data.toUpperCase())
+          : undefined;
+        const portfolioId = existingAsset?.portfolioId ?? resolvePortfolioForNewAssets();
+
+        if (!portfolioId) {
+          audit.classification = "pending";
+          audit.status = "pending";
+          audit.reason = "Selecione um portfolio para registrar o reembolso em caixa.";
+          continue;
+        }
+
+        const value = Math.abs(row.value);
+        const effectKey = buildImportDedupKey({
+          scope: `cash:${portfolioId}:deposit`,
+          date: audit.date,
+          quantity: 0,
+          value,
+        });
+        if (existingEffectKeys.has(effectKey) || batchEffectKeys.has(effectKey)) {
+          audit.status = "informational";
+          audit.reason = `${audit.reason} Efeito contabil duplicado ignorado.`;
+          duplicateCount++;
+          continue;
+        }
+        batchEffectKeys.add(effectKey);
+
+        const id = crypto.randomUUID();
+        newCash.push({
+          id,
+          portfolioId,
+          type: "deposit",
+          value,
+          date: audit.date,
+          notes: `Importado B3 - ${row.movementType}${row.productName ? ` - ${row.productName}` : ""}`,
+          createdAt: Date.now(),
+        });
+        audit.linkedRecordIds.push(id);
+        continue;
+      }
+
       const tickerResult = tickerSchema.safeParse(tdTicker ?? row.ticker);
       if (!tickerResult.success) {
         audit.classification = "pending";
@@ -1215,7 +1275,7 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
         continue;
       }
 
-      const dividendType = row.classification.accountingType;
+      const dividendType = accountingType;
       if (
         dividendType !== "dividend" &&
         dividendType !== "jcp" &&
@@ -1273,13 +1333,14 @@ export function B3ImportTab({ onImportComplete }: B3ImportTabProps) {
     await saveAssetsBulk(newAssets);
     await saveTransactionsBulk(newTransactions);
     await saveDividendsBulk(newDividends);
+    await saveCashMovementsBulk(newCash);
     await saveImportedMovementsBulk(auditRecords);
 
     const pending = auditRecords.filter((record) => record.status === "pending").length;
     const informational = auditRecords.filter(
       (record) => record.status === "informational"
     ).length;
-    return `${newAssets.length} ativos novos, ${newTransactions.length} transacoes, ${newDividends.length} proventos, ${informational} informativas, ${pending} pendentes${
+    return `${newAssets.length} ativos novos, ${newTransactions.length} transacoes, ${newDividends.length} proventos, ${newCash.length} em caixa, ${informational} informativas, ${pending} pendentes${
       duplicateCount ? `, ${duplicateCount} duplicadas ignoradas` : ""
     }.`;
   };

@@ -1,5 +1,6 @@
 import type {
   CorporateActionType,
+  ImportedMovementAccountingType,
   ImportedMovementClassification,
 } from "@/types/financial";
 
@@ -15,7 +16,7 @@ export interface B3MovementClassificationResult {
   classification: ImportedMovementClassification;
   reason: string;
   suggestedCorporateActionType?: CorporateActionType;
-  accountingType?: "trade" | "dividend" | "jcp" | "yield" | "stock_lending" | "cash_refund";
+  accountingType?: ImportedMovementAccountingType;
   selectedByDefault: boolean;
 }
 
@@ -38,15 +39,28 @@ export function classifyB3Movement(
   const product = normalize(input.productName);
   const combined = `${movement} ${product}`;
   const value = Math.abs(Number(input.value) || 0);
+  const isTesouro = product.startsWith("tesouro ");
 
   if (
-    product.startsWith("tesouro ") &&
+    isTesouro &&
     includesAny(movement, ["compra", "venda", "resgate", "transferencia"])
   ) {
     return {
       classification: "accounting",
       accountingType: "trade",
       reason: "Movimentacao de Tesouro Direto identificada.",
+      selectedByDefault: true,
+    };
+  }
+
+  if (
+    isTesouro &&
+    includesAny(movement, ["juros", "rendimento", "rendimentos", "cupom", "pagamento de juros"])
+  ) {
+    return {
+      classification: "accounting",
+      accountingType: "yield",
+      reason: "Rendimento ou juros de Tesouro Direto identificado.",
       selectedByDefault: true,
     };
   }
@@ -111,10 +125,17 @@ export function classifyB3Movement(
 
   if (movement.includes("reembolso") || movement.includes("restituicao")) {
     return {
-      classification: "pending",
+      classification: "accounting",
       accountingType: "cash_refund",
-      suggestedCorporateActionType: "amortization",
-      reason: "Pode representar amortizacao de custo ou apenas entrada de caixa.",
+      reason: "Reembolso ou restituicao de capital identificado como entrada de caixa.",
+      selectedByDefault: true,
+    };
+  }
+
+  if (isTesouro) {
+    return {
+      classification: "pending",
+      reason: "Movimentacao de Tesouro Direto sem tratamento automatico seguro.",
       selectedByDefault: false,
     };
   }

@@ -13,6 +13,7 @@ import type {
   Asset,
   CorporateAction,
   CorporateActionType,
+  Dividend,
   ImportedMovement,
   Portfolio,
 } from "@/types/financial";
@@ -25,6 +26,21 @@ const actionLabels: Record<CorporateActionType, string> = {
   subscription: "Subscricao",
   ticker_change: "Mudanca de ticker",
   merger: "Incorporacao / conversao",
+};
+
+type ReviewTreatment = "cash_refund" | "dividend" | "corporate_action";
+
+const treatmentLabels: Record<ReviewTreatment, string> = {
+  cash_refund: "Entrada de caixa / Reembolso",
+  dividend: "Provento",
+  corporate_action: "Evento corporativo",
+};
+
+const dividendLabels: Record<Extract<Dividend["type"], "dividend" | "jcp" | "yield" | "stock_lending">, string> = {
+  dividend: "Dividendo",
+  jcp: "JCP",
+  yield: "Rendimento",
+  stock_lending: "Aluguel de ativos",
 };
 
 function formatDate(value: number) {
@@ -71,15 +87,22 @@ export function MovementAuditPanel({
   const {
     saveCorporateAction,
     deleteCorporateAction,
+    saveDividend,
+    deleteDividend,
     saveCashMovement,
     deleteCashMovement,
+    deleteTransaction,
     saveImportedMovement,
     saveImportedMovementsBulk,
   } = useSecureStorage();
   const [reviewing, setReviewing] = useState<ImportedMovement | null>(null);
+  const [reviewTreatment, setReviewTreatment] = useState<ReviewTreatment>("corporate_action");
   const [assetId, setAssetId] = useState("");
+  const [portfolioId, setPortfolioId] = useState("");
   const [destinationAssetId, setDestinationAssetId] = useState("");
   const [actionType, setActionType] = useState<CorporateActionType>("split");
+  const [dividendType, setDividendType] =
+    useState<Extract<Dividend["type"], "dividend" | "jcp" | "yield" | "stock_lending">>("yield");
   const [ratioNumerator, setRatioNumerator] = useState("");
   const [ratioDenominator, setRatioDenominator] = useState("");
   const [quantityChange, setQuantityChange] = useState("");
@@ -105,10 +128,27 @@ export function MovementAuditPanel({
     const matchedAsset = assets.find(
       (asset) => asset.ticker.toUpperCase() === movement.ticker?.toUpperCase()
     );
+    const hasSuggestedDividendType =
+      movement.accountingType === "dividend" ||
+      movement.accountingType === "jcp" ||
+      movement.accountingType === "yield" ||
+      movement.accountingType === "stock_lending";
+    const suggestedDividendType = hasSuggestedDividendType ? movement.accountingType : "yield";
+    const treatment: ReviewTreatment =
+      movement.accountingType === "cash_refund"
+        ? "cash_refund"
+        : hasSuggestedDividendType
+          ? "dividend"
+          : movement.suggestedCorporateActionType
+            ? "corporate_action"
+            : "corporate_action";
     setReviewing(movement);
+    setReviewTreatment(treatment);
     setAssetId(matchedAsset?.id ?? "");
+    setPortfolioId(matchedAsset?.portfolioId ?? portfolios[0]?.id ?? "");
     setDestinationAssetId("");
     setActionType(movement.suggestedCorporateActionType ?? "split");
+    setDividendType(suggestedDividendType);
     setRatioNumerator("");
     setRatioDenominator("");
     setQuantityChange(movement.quantity > 0 ? String(movement.quantity) : "");
@@ -137,7 +177,104 @@ export function MovementAuditPanel({
   };
 
   const saveReview = async () => {
-    if (!reviewing || !assetId) {
+    if (!reviewing) {
+      return;
+    }
+
+    if (reviewTreatment === "cash_refund") {
+      if (!portfolioId) {
+        toast({ title: "Selecione o portfolio de destino", variant: "destructive" });
+        return;
+      }
+
+      const value = parseLocaleNumber(cashValue) || Math.abs(reviewing.value);
+      if (!(value > 0)) {
+        toast({ title: "Informe um valor recebido valido", variant: "destructive" });
+        return;
+      }
+
+      setIsSaving(true);
+      try {
+        const cashId = crypto.randomUUID();
+        await saveCashMovement({
+          id: cashId,
+          portfolioId,
+          type: "deposit",
+          value,
+          date: reviewing.date,
+          notes: `Revisao B3 - ${reviewing.movementType}`,
+          createdAt: Date.now(),
+        });
+        await saveImportedMovement({
+          ...reviewing,
+          classification: "accounting",
+          accountingType: "cash_refund",
+          status: "applied",
+          linkedRecordIds: [...reviewing.linkedRecordIds, cashId],
+          reason: `${reviewing.reason} Aplicado como entrada de caixa.`,
+        });
+        await onChanged();
+        setReviewing(null);
+        toast({ title: "Entrada de caixa aplicada" });
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
+    if (reviewTreatment === "dividend") {
+      if (!assetId) {
+        toast({ title: "Selecione o ativo do provento", variant: "destructive" });
+        return;
+      }
+
+      const sourceAsset = assetById.get(assetId);
+      if (!sourceAsset) return;
+
+      const totalValue = parseLocaleNumber(cashValue) || Math.abs(reviewing.value);
+      if (!(totalValue > 0)) {
+        toast({ title: "Informe um valor recebido valido", variant: "destructive" });
+        return;
+      }
+
+      const shares = parseLocaleNumber(quantityChange) || reviewing.quantity || 0;
+      const valuePerShare =
+        shares > 0 ? totalValue / shares : parseLocaleNumber(costBasisChange) || reviewing.unitPrice || totalValue;
+
+      setIsSaving(true);
+      try {
+        const dividendId = crypto.randomUUID();
+        await saveDividend({
+          id: dividendId,
+          assetId,
+          portfolioId: sourceAsset.portfolioId,
+          type: dividendType,
+          valuePerShare,
+          shares,
+          grossValue: totalValue,
+          taxWithheld: 0,
+          totalValue,
+          paymentDate: reviewing.date,
+          createdAt: Date.now(),
+        });
+        await saveImportedMovement({
+          ...reviewing,
+          classification: "accounting",
+          accountingType: dividendType,
+          status: "applied",
+          linkedRecordIds: [...reviewing.linkedRecordIds, dividendId],
+          reason: `${reviewing.reason} Aplicado como provento.`,
+        });
+        await onChanged();
+        setReviewing(null);
+        toast({ title: "Provento aplicado" });
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
+    if (!assetId) {
       toast({ title: "Selecione o ativo afetado", variant: "destructive" });
       return;
     }
@@ -244,10 +381,32 @@ export function MovementAuditPanel({
     toast({ title: "Evento desfeito" });
   };
 
+  const undoImportedMovement = async (movement: ImportedMovement) => {
+    for (const id of movement.linkedRecordIds) {
+      await Promise.all([
+        deleteCorporateAction(id),
+        deleteCashMovement(id),
+        deleteDividend(id),
+        deleteTransaction(id),
+      ]);
+    }
+
+    await saveImportedMovement({
+      ...movement,
+      classification: "pending",
+      status: "pending",
+      linkedRecordIds: [],
+      reason: `${movement.reason} Aplicacao desfeita pelo usuario.`,
+    });
+    await onChanged();
+    toast({ title: "Registro desfeito" });
+  };
+
   const renderImportedRows = (
     rows: ImportedMovement[],
     emptyMessage: string,
-    pendingMode = false
+    pendingMode = false,
+    appliedMode = false
   ) => (
     <div className="divide-y divide-border rounded-md border border-border">
       {rows.length === 0 ? (
@@ -275,18 +434,30 @@ export function MovementAuditPanel({
                 </p>
               )}
             </div>
-            {pendingMode && (
+            {(pendingMode || appliedMode) && (
               <div className="flex shrink-0 gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void markInformational(movement)}
-                >
-                  Sem efeito
-                </Button>
-                <Button size="sm" onClick={() => openReview(movement)}>
-                  Revisar
-                </Button>
+                {pendingMode ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void markInformational(movement)}
+                    >
+                      Sem efeito
+                    </Button>
+                    <Button size="sm" onClick={() => openReview(movement)}>
+                      Revisar
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void undoImportedMovement(movement)}
+                  >
+                    Desfazer
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -319,7 +490,7 @@ export function MovementAuditPanel({
           </TabsList>
 
           <TabsContent value="accounting" className="mt-3">
-            <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
+            <div className="mb-3 rounded-md border border-border p-4 text-sm text-muted-foreground">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 text-success" />
                 <div>
@@ -342,6 +513,12 @@ export function MovementAuditPanel({
                 </div>
               </div>
             </div>
+            {renderImportedRows(
+              accountedImports,
+              "Nenhum registro importado com efeito contabil confirmado.",
+              false,
+              true
+            )}
           </TabsContent>
 
           <TabsContent value="events" className="mt-3">
@@ -408,7 +585,7 @@ export function MovementAuditPanel({
       <Dialog open={Boolean(reviewing)} onOpenChange={(open) => !open && setReviewing(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Revisar evento corporativo</DialogTitle>
+            <DialogTitle>Revisar movimentacao B3</DialogTitle>
           </DialogHeader>
 
           {reviewing && (
@@ -423,7 +600,110 @@ export function MovementAuditPanel({
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tratamento</Label>
+                <Select
+                  value={reviewTreatment}
+                  onValueChange={(value) => setReviewTreatment(value as ReviewTreatment)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(treatmentLabels).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {reviewTreatment === "cash_refund" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Portfolio de destino</Label>
+                    <Select value={portfolioId} onValueChange={setPortfolioId}>
+                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectContent>
+                        {portfolios.map((portfolio) => (
+                          <SelectItem key={portfolio.id} value={portfolio.id}>
+                            {portfolio.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Valor recebido</Label>
+                    <Input
+                      inputMode="decimal"
+                      value={cashValue}
+                      onChange={(event) => setCashValue(event.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {reviewTreatment === "dividend" && (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Tipo de provento</Label>
+                      <Select
+                        value={dividendType}
+                        onValueChange={(value) => setDividendType(value as typeof dividendType)}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(dividendLabels).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Ativo do provento</Label>
+                      <Select value={assetId} onValueChange={setAssetId}>
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>
+                          {assets.map((asset) => (
+                            <SelectItem key={asset.id} value={asset.id}>
+                              {asset.ticker} - {portfolios.find((p) => p.id === asset.portfolioId)?.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Quantidade</Label>
+                      <Input
+                        inputMode="decimal"
+                        value={quantityChange}
+                        onChange={(event) => setQuantityChange(event.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Valor total</Label>
+                      <Input
+                        inputMode="decimal"
+                        value={cashValue}
+                        onChange={(event) => setCashValue(event.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Valor por cota opcional</Label>
+                      <Input
+                        inputMode="decimal"
+                        value={costBasisChange}
+                        onChange={(event) => setCostBasisChange(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {reviewTreatment === "corporate_action" && (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Tipo de evento</Label>
                   <Select
@@ -451,7 +731,7 @@ export function MovementAuditPanel({
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
+                  </div>
 
               {(actionType === "ticker_change" || actionType === "merger") && (
                 <div className="space-y-2">
@@ -536,11 +816,13 @@ export function MovementAuditPanel({
                   </div>
                 </div>
               )}
+                </>
+              )}
 
               <div className="flex items-start gap-2 rounded-md border border-border p-3 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                O evento so entra nos calculos depois desta confirmacao. Confira os dados no
-                comunicado da empresa ou da corretora.
+                O registro so entra nos calculos depois desta confirmacao. Confira os dados no
+                extrato da B3, comunicado da empresa ou informe da corretora.
               </div>
             </div>
           )}
