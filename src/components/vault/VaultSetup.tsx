@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, Eye, EyeOff, Lock, AlertTriangle, HardDrive, Database, ArrowRight, Trash2 } from 'lucide-react';
+import { Shield, Eye, EyeOff, Lock, AlertTriangle, HardDrive, Database, ArrowRight, Trash2, Cloud, Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,15 +14,25 @@ import { useAuthUser } from '@/contexts/GoogleUserContext';
 import { toast } from '@/hooks/use-toast';
 import { isPersistentStorageEnabled, requestPersistentStorage } from '@/lib/indexeddb';
 import { isBiometricSupported, enrollBiometric } from '@/lib/biometric-unlock';
+import { updateSyncStatus } from '@/lib/backup';
+import {
+  downloadFromGoogleDrive,
+  getAppGoogleClientId,
+  getGoogleDriveBackupInfo,
+  initiateGoogleAuth,
+  isGoogleDriveConnected,
+  uploadToGoogleDrive,
+} from '@/lib/google-drive';
 
 interface VaultSetupProps {
   onComplete: () => void;
 }
 
 export function VaultSetup({ onComplete }: VaultSetupProps) {
-  const { initializeVault, isLoading, localHasData, migrateFromLocal, wipeAllData } = useSecureStorage();
+  const { initializeVault, importEncryptedBackup, isLoading, localHasData, migrateFromLocal, wipeAllData } = useSecureStorage();
   const { user } = useAuthUser();
   const namespace = user?.uid || 'default';
+  const appClientId = getAppGoogleClientId();
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -36,6 +46,10 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
 
   const [bioSupported, setBioSupported] = useState(false);
   const [enrollBio, setEnrollBio] = useState(false);
+  const [cloudStatus, setCloudStatus] =
+    useState<'idle' | 'checking' | 'found' | 'empty' | 'disconnected' | 'error'>('idle');
+  const [cloudModifiedAt, setCloudModifiedAt] = useState<number | null>(null);
+  const [isRestoringCloud, setIsRestoringCloud] = useState(false);
 
   // Migration state
   const [showMigration, setShowMigration] = useState(false);
@@ -52,6 +66,75 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
   useEffect(() => {
     if (localHasData) setShowMigration(true);
   }, [localHasData]);
+
+  useEffect(() => {
+    if (!user || showMigration) return;
+    let active = true;
+
+    const checkCloudBackup = async () => {
+      if (!isGoogleDriveConnected()) {
+        if (active) setCloudStatus('disconnected');
+        return;
+      }
+
+      if (active) setCloudStatus('checking');
+      try {
+        const info = await getGoogleDriveBackupInfo({ allowInteractive: false });
+        if (!active) return;
+        setCloudModifiedAt(info.modifiedTime);
+        setCloudStatus(info.exists ? 'found' : 'empty');
+      } catch (error) {
+        console.warn('[VaultSetup] Could not check Google Drive backup', error);
+        if (active) setCloudStatus('error');
+      }
+    };
+
+    void checkCloudBackup();
+    return () => {
+      active = false;
+    };
+  }, [showMigration, user]);
+
+  const connectDriveIfNeeded = async () => {
+    if (isGoogleDriveConnected()) return;
+    if (!appClientId) {
+      throw new Error('Google Drive nao configurado para este ambiente.');
+    }
+    await initiateGoogleAuth(appClientId);
+  };
+
+  const handleRestoreFromCloud = async () => {
+    setIsRestoringCloud(true);
+    setError('');
+    try {
+      await connectDriveIfNeeded();
+      const cloudData = await downloadFromGoogleDrive({ allowInteractive: true });
+      if (!cloudData) {
+        setCloudStatus('empty');
+        toast({ title: 'Nenhum backup encontrado', description: 'Nao ha cofre salvo no Google Drive.' });
+        return;
+      }
+
+      await importEncryptedBackup(cloudData);
+      updateSyncStatus({
+        lastSyncAt: Date.now(),
+        provider: 'google_drive',
+        autoSyncEnabled: true,
+        existingBackupWarningShown: true,
+        needsReauth: false,
+      });
+      toast({
+        title: 'Cofre restaurado da nuvem',
+        description: 'Agora desbloqueie usando a senha do cofre.',
+      });
+      window.location.reload();
+    } catch (err) {
+      console.error('[VaultSetup] Cloud restore failed:', err);
+      setError(err instanceof Error ? err.message : 'Nao foi possivel restaurar o cofre da nuvem.');
+    } finally {
+      setIsRestoringCloud(false);
+    }
+  };
 
   const handleMigrate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,8 +174,40 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
       return;
     }
 
+    if (cloudStatus === 'found') {
+      const confirmed = window.confirm(
+        'Já existe um cofre criptografado no Google Drive para esta conta.\n\n' +
+        'Criar um novo cofre pode substituir esse backup. Deseja continuar?'
+      );
+      if (!confirmed) return;
+    }
+
     try {
-      await initializeVault(password);
+      const initialBackup = await initializeVault(password);
+
+      try {
+        await connectDriveIfNeeded();
+        await uploadToGoogleDrive(initialBackup, { allowInteractive: true });
+        updateSyncStatus({
+          lastSyncAt: Date.now(),
+          provider: 'google_drive',
+          autoSyncEnabled: true,
+          existingBackupWarningShown: true,
+          needsReauth: false,
+        });
+        setCloudStatus('found');
+        toast({
+          title: 'Cofre salvo no Google Drive',
+          description: 'O Drive será usado como cópia principal criptografada.',
+        });
+      } catch (cloudError) {
+        console.warn('[VaultSetup] Initial cloud backup failed:', cloudError);
+        toast({
+          title: 'Cofre criado apenas neste navegador',
+          description: 'Não foi possível enviar o backup inicial ao Google Drive. Conecte o Drive nas configurações assim que possível.',
+          variant: 'destructive',
+        });
+      }
 
       if (enrollBio && bioSupported) {
         try {
@@ -232,6 +347,45 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
               <p className="text-success/80">
                 Nenhum dado financeiro sai do seu dispositivo
               </p>
+            </div>
+          </div>
+
+          <div className="mb-6 rounded-lg border border-border bg-card/50 p-4 text-sm">
+            <div className="flex items-start gap-3">
+              <Cloud className="mt-0.5 h-5 w-5 text-primary" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div>
+                  <p className="font-medium text-foreground">Cofre no Google Drive</p>
+                  <p className="text-xs text-muted-foreground">
+                    {cloudStatus === 'checking'
+                      ? 'Verificando se ja existe um backup criptografado...'
+                      : cloudStatus === 'found'
+                        ? `Backup encontrado${cloudModifiedAt ? ` em ${new Date(cloudModifiedAt).toLocaleString('pt-BR')}` : ''}.`
+                        : cloudStatus === 'empty'
+                          ? 'Nenhum backup encontrado; um novo sera criado ao salvar.'
+                          : cloudStatus === 'disconnected'
+                            ? 'Conecte o Google Drive para restaurar ou criar o backup principal.'
+                            : cloudStatus === 'error'
+                              ? 'Nao foi possivel verificar agora; voce ainda pode criar o cofre localmente.'
+                              : 'O Drive sera usado como copia principal criptografada.'}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant={cloudStatus === 'found' ? 'default' : 'outline'}
+                  size="sm"
+                  className="w-full gap-2"
+                  onClick={handleRestoreFromCloud}
+                  disabled={isRestoringCloud || cloudStatus === 'checking'}
+                >
+                  {isRestoringCloud ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  {isRestoringCloud ? 'Restaurando...' : 'Restaurar cofre da nuvem'}
+                </Button>
+              </div>
             </div>
           </div>
 

@@ -110,6 +110,7 @@ export function BackupRestoreDialog({ trigger }: BackupRestoreDialogProps) {
         imported_movements: backup.data.imported_movements,
         settings: backup.data.settings,
         metadata: backup.data.metadata,
+        key_verifier: backup.data.key_verifier,
       });
       
       await importEncryptedBackup(importData);

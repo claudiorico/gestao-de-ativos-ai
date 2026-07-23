@@ -406,6 +406,7 @@ export async function downloadFromGoogleDrive(
       imported_movements: backup.data.imported_movements,
       settings: backup.data.settings,
       metadata: backup.data.metadata,
+      key_verifier: backup.data.key_verifier,
     });
 
     return importData;

@@ -52,7 +52,7 @@ interface SecureStorageContextType extends SecureStorageState {
   portfolioDisplaySnapshot: PortfolioDisplaySnapshot | null;
 
   // Initialization
-  initializeVault: (password: string) => Promise<void>;
+  initializeVault: (password: string) => Promise<string>;
   unlockVault: (password: string) => Promise<boolean>;
   lockVault: () => void;
   isVaultSetup: () => Promise<boolean>;
@@ -232,7 +232,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     return !!metadata;
   }, []);
 
-  const initializeVault = useCallback(async (password: string): Promise<void> => {
+  const initializeVault = useCallback(async (password: string): Promise<string> => {
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
       
@@ -248,7 +248,21 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       
       // Store metadata (salt is safe to store, password is not)
       await setItem('metadata', METADATA_KEY, JSON.stringify(metadata));
-      await setItem('metadata', KEY_VERIFIER_KEY, await encrypt(KEY_VERIFIER_VALUE, key));
+      const encryptedVerifier = await encrypt(KEY_VERIFIER_VALUE, key);
+      await setItem('metadata', KEY_VERIFIER_KEY, encryptedVerifier);
+
+      const initialBackup = JSON.stringify({
+        portfolios: await encrypt(JSON.stringify([]), key),
+        assets: await encrypt(JSON.stringify([]), key),
+        transactions: await encrypt(JSON.stringify([]), key),
+        dividends: await encrypt(JSON.stringify([]), key),
+        cash_movements: await encrypt(JSON.stringify([]), key),
+        corporate_actions: await encrypt(JSON.stringify([]), key),
+        imported_movements: await encrypt(JSON.stringify([]), key),
+        settings: null,
+        metadata: JSON.stringify(metadata),
+        key_verifier: encryptedVerifier,
+      });
       
       setEncryptionKey(key);
       portfolioDisplaySnapshotRef.current = null;
@@ -259,6 +273,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
         isLoading: false,
         error: null,
       });
+      return initialBackup;
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -638,6 +653,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
         imported_movements: await encrypt(JSON.stringify(await getEncryptedData<ImportedMovement>('imported_movements')), encryptionKey),
         settings: await getItem('settings', MASTER_DATA_KEY),
         metadata: await getItem('metadata', METADATA_KEY),
+        key_verifier: await getItem('metadata', KEY_VERIFIER_KEY),
         exportedAt: Date.now(),
       };
     
@@ -673,6 +689,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
       if (data.imported_movements) await setItem('imported_movements', MASTER_DATA_KEY, data.imported_movements);
       if (data.settings) await setItem('settings', MASTER_DATA_KEY, data.settings);
       if (data.metadata) await setItem('metadata', METADATA_KEY, data.metadata);
+      if (data.key_verifier) await setItem('metadata', KEY_VERIFIER_KEY, data.key_verifier);
 
       notifyDataChange();
     },
