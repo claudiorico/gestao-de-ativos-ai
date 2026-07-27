@@ -313,7 +313,7 @@ export async function initiateGoogleAuth(clientId: string): Promise<string> {
  */
 export async function uploadToGoogleDrive(
   encryptedData: string,
-  opts?: { allowInteractive?: boolean }
+  opts?: { allowInteractive?: boolean; preventOverwrite?: boolean }
 ): Promise<void> {
   const config = getGoogleDriveConfig();
   if (!config?.clientId) {
@@ -330,6 +330,9 @@ export async function uploadToGoogleDrive(
 
   // First, check if file exists
   const existingFileId = await findBackupFile(accessToken);
+  if (existingFileId && opts?.preventOverwrite) {
+    throw new Error("BACKUP_EXISTS");
+  }
   const fileName = getBackupFileName();
 
   const metadata = {

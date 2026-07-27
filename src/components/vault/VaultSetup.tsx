@@ -50,6 +50,7 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
     useState<'idle' | 'checking' | 'found' | 'empty' | 'disconnected' | 'error'>('idle');
   const [cloudModifiedAt, setCloudModifiedAt] = useState<number | null>(null);
   const [isRestoringCloud, setIsRestoringCloud] = useState(false);
+  const [createLocalDespiteCloudBackup, setCreateLocalDespiteCloudBackup] = useState(false);
 
   // Migration state
   const [showMigration, setShowMigration] = useState(false);
@@ -101,6 +102,15 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
       throw new Error('Google Drive nao configurado para este ambiente.');
     }
     await initiateGoogleAuth(appClientId);
+  };
+
+  const verifyCloudBackupInteractive = async () => {
+    await connectDriveIfNeeded();
+    setCloudStatus('checking');
+    const info = await getGoogleDriveBackupInfo({ allowInteractive: true });
+    setCloudModifiedAt(info.modifiedTime);
+    setCloudStatus(info.exists ? 'found' : 'empty');
+    return info;
   };
 
   const handleRestoreFromCloud = async () => {
@@ -174,10 +184,40 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
       return;
     }
 
+    if (cloudStatus === 'checking') {
+      setError('Aguarde a verificacao do Google Drive terminar antes de criar o cofre.');
+      return;
+    }
+
+    if (cloudStatus === 'found' && !createLocalDespiteCloudBackup) {
+      setError('Ja existe um cofre no Google Drive para esta conta. Restaure da nuvem ou marque a opcao para criar um cofre novo apenas neste navegador.');
+      return;
+    }
+
+    let canUploadInitialBackup = false;
+    if (!createLocalDespiteCloudBackup && user) {
+      try {
+        const info = await verifyCloudBackupInteractive();
+        if (info.exists) {
+          setError('Backup encontrado no Google Drive. Restaure o cofre da nuvem antes de criar outro.');
+          return;
+        }
+        canUploadInitialBackup = true;
+      } catch (cloudCheckError) {
+        console.warn('[VaultSetup] Interactive cloud check failed:', cloudCheckError);
+        setCloudStatus('error');
+        const createLocalOnly = window.confirm(
+          'Nao foi possivel confirmar se existe backup no Google Drive.\n\n' +
+          'Para proteger backups antigos, o app nao vai enviar nada para a nuvem agora. Deseja criar o cofre apenas neste navegador?'
+        );
+        if (!createLocalOnly) return;
+      }
+    }
+
     if (cloudStatus === 'found') {
       const confirmed = window.confirm(
         'Já existe um cofre criptografado no Google Drive para esta conta.\n\n' +
-        'Criar um novo cofre pode substituir esse backup. Deseja continuar?'
+        'O novo cofre sera criado apenas neste navegador e NAO vai substituir o backup remoto. Deseja continuar?'
       );
       if (!confirmed) return;
     }
@@ -186,8 +226,10 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
       const initialBackup = await initializeVault(password);
 
       try {
-        await connectDriveIfNeeded();
-        await uploadToGoogleDrive(initialBackup, { allowInteractive: true });
+        if (!canUploadInitialBackup) {
+          throw new Error('LOCAL_ONLY_CREATE');
+        }
+        await uploadToGoogleDrive(initialBackup, { allowInteractive: true, preventOverwrite: true });
         updateSyncStatus({
           lastSyncAt: Date.now(),
           provider: 'google_drive',
@@ -202,10 +244,24 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
         });
       } catch (cloudError) {
         console.warn('[VaultSetup] Initial cloud backup failed:', cloudError);
+        updateSyncStatus({
+          lastSyncAt: null,
+          provider: 'local',
+          autoSyncEnabled: false,
+          existingBackupWarningShown: true,
+          needsReauth: false,
+        });
         toast({
-          title: 'Cofre criado apenas neste navegador',
-          description: 'Não foi possível enviar o backup inicial ao Google Drive. Conecte o Drive nas configurações assim que possível.',
-          variant: 'destructive',
+          title: cloudError instanceof Error && cloudError.message === 'LOCAL_ONLY_CREATE'
+            ? 'Cofre criado neste navegador'
+            : 'Cofre criado apenas neste navegador',
+          description:
+            cloudError instanceof Error && cloudError.message === 'BACKUP_EXISTS'
+              ? 'Um backup apareceu no Google Drive durante a criacao, entao ele foi preservado.'
+              : cloudError instanceof Error && cloudError.message === 'LOCAL_ONLY_CREATE'
+                ? 'O backup do Google Drive nao foi alterado.'
+                : 'Nao foi possivel enviar o backup inicial ao Google Drive. Conecte o Drive nas configuracoes assim que possivel.',
+          variant: cloudError instanceof Error && cloudError.message === 'LOCAL_ONLY_CREATE' ? undefined : 'destructive',
         });
       }
 
@@ -364,30 +420,45 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
                         : cloudStatus === 'empty'
                           ? 'Nenhum backup encontrado; um novo sera criado ao salvar.'
                           : cloudStatus === 'disconnected'
-                            ? 'Conecte o Google Drive para restaurar ou criar o backup principal.'
+                            ? 'O app vai pedir conexao antes de criar o backup principal.'
                             : cloudStatus === 'error'
-                              ? 'Nao foi possivel verificar agora; voce ainda pode criar o cofre localmente.'
-                              : 'O Drive sera usado como copia principal criptografada.'}
+                              ? 'Nao foi possivel verificar agora; a criacao nao enviara nada ao Drive sem nova confirmacao.'
+                              : 'O Drive sera verificado antes de criar qualquer backup.'}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant={cloudStatus === 'found' ? 'default' : 'outline'}
-                  size="sm"
-                  className="w-full gap-2"
-                  onClick={handleRestoreFromCloud}
-                  disabled={isRestoringCloud || cloudStatus === 'checking'}
-                >
-                  {isRestoringCloud ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  {isRestoringCloud ? 'Restaurando...' : 'Restaurar cofre da nuvem'}
-                </Button>
+                {cloudStatus === 'found' && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full gap-2"
+                    onClick={handleRestoreFromCloud}
+                    disabled={isRestoringCloud}
+                  >
+                    {isRestoringCloud ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    {isRestoringCloud ? 'Restaurando...' : 'Restaurar cofre da nuvem'}
+                  </Button>
+                )}
               </div>
             </div>
           </div>
+
+          {cloudStatus === 'found' && (
+            <label className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-muted p-3 text-xs text-warning">
+              <Checkbox
+                checked={createLocalDespiteCloudBackup}
+                onCheckedChange={(value) => setCreateLocalDespiteCloudBackup(Boolean(value))}
+                className="mt-0.5"
+              />
+              <span>
+                Criar um cofre novo apenas neste navegador, preservando o backup que ja existe no
+                Google Drive. Use somente se voce nao quer restaurar o cofre da nuvem.
+              </span>
+            </label>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Password Input */}
@@ -537,8 +608,16 @@ export function VaultSetup({ onComplete }: VaultSetupProps) {
             )}
 
             {/* Submit Button */}
-            <Button type="submit" className="w-full h-12" disabled={isLoading}>
-              {isLoading ? 'Criando cofre...' : 'Criar Cofre Seguro'}
+            <Button
+              type="submit"
+              className="w-full h-12"
+              disabled={isLoading || cloudStatus === 'checking'}
+            >
+              {isLoading
+                ? 'Criando cofre...'
+                : cloudStatus === 'found' && createLocalDespiteCloudBackup
+                  ? 'Criar cofre local'
+                  : 'Criar Cofre Seguro'}
             </Button>
 
             {/* Switch to migration */}

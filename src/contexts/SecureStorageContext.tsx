@@ -664,7 +664,7 @@ export function SecureStorageProvider({ children }: { children: React.ReactNode 
     async (backup: string): Promise<void> => {
       const data = JSON.parse(backup);
 
-      if (!data.metadata) {
+      if (!data || typeof data !== 'object' || typeof data.metadata !== 'string') {
         throw new Error('Invalid encrypted backup: missing metadata');
       }
 
