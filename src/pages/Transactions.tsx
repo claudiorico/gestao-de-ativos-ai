@@ -29,7 +29,6 @@ import { useToast } from "@/hooks/use-toast";
 import type {
   Asset,
   CashMovement,
-  CorporateAction,
   Dividend,
   ImportedMovement,
   Portfolio,
@@ -142,7 +141,6 @@ export default function Transactions() {
     getDividends,
     getCashMovements,
     getPortfolios,
-    getCorporateActions,
     getImportedMovements,
     deleteTransaction,
     deleteDividend,
@@ -157,7 +155,6 @@ export default function Transactions() {
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [cashMovements, setCashMovements] = useState<CashMovement[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [corporateActions, setCorporateActions] = useState<CorporateAction[]>([]);
   const [importedMovements, setImportedMovements] = useState<ImportedMovement[]>([]);
 
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
@@ -167,19 +164,17 @@ export default function Transactions() {
   const load = useCallback(async () => {
     if (!isUnlocked) return;
     try {
-      const [tx, dv, cm, ps, actions, imported] = await Promise.all([
+      const [tx, dv, cm, ps, imported] = await Promise.all([
         getTransactions(),
         getDividends(),
         getCashMovements(),
         getPortfolios(),
-        getCorporateActions(),
         getImportedMovements(),
       ]);
       setTransactions(tx);
       setDividends(dv);
       setCashMovements(cm);
       setPortfolios(ps);
-      setCorporateActions(actions);
       setImportedMovements(imported);
     } catch (err) {
       console.error("[Transactions] Failed to load movements:", err);
@@ -194,7 +189,6 @@ export default function Transactions() {
     getDividends,
     getCashMovements,
     getPortfolios,
-    getCorporateActions,
     getImportedMovements,
     isUnlocked,
     toast,
@@ -410,63 +404,6 @@ export default function Transactions() {
     return assets.filter((a) => assetIds.has(a.id));
   }, [assets, movements, yearFilter]);
 
-  const legacyCandidates = useMemo<ImportedMovement[]>(() => {
-    const linkedIds = new Set(importedMovements.flatMap((movement) => movement.linkedRecordIds));
-    const now = Date.now();
-    const transactionCandidates = transactions
-      .filter(
-        (transaction) =>
-          transaction.notes?.toLowerCase().includes("importado b3") &&
-          !linkedIds.has(transaction.id)
-      )
-      .map<ImportedMovement>((transaction) => ({
-        id: crypto.randomUUID(),
-        source: "b3_negotiation",
-        fingerprint: `legacy:transaction:${transaction.id}`,
-        rawDescription: transaction.notes ?? "Importado B3",
-        movementType: transaction.type === "buy" ? "Compra" : "Venda",
-        ticker: assetById.get(transaction.assetId)?.ticker,
-        date: transaction.date,
-        quantity: transaction.shares,
-        unitPrice: transaction.pricePerShare,
-        value: transaction.totalValue,
-        classification: "accounting",
-        reason: "Lancamento antigo reconhecido como compra ou venda ja contabilizada.",
-        status: "applied",
-        linkedRecordIds: [transaction.id],
-        createdAt: now,
-      }));
-    const cashCandidates = cashMovements
-      .filter(
-        (movement) =>
-          movement.notes?.toLowerCase().includes("importado b3") &&
-          !linkedIds.has(movement.id)
-      )
-      .map<ImportedMovement>((movement) => {
-        const isRefund = movement.notes?.toLowerCase().includes("reembolso");
-        return {
-          id: crypto.randomUUID(),
-          source: "b3_movement",
-          fingerprint: `legacy:cash:${movement.id}`,
-          rawDescription: movement.notes ?? "Importado B3",
-          movementType: isRefund ? "Reembolso" : "Movimento de caixa",
-          date: movement.date,
-          quantity: 0,
-          unitPrice: 0,
-          value: movement.value,
-          classification: isRefund ? "pending" : "informational",
-          suggestedCorporateActionType: isRefund ? "amortization" : undefined,
-          reason: isRefund
-            ? "Reembolso antigo pode exigir ajuste do custo do ativo."
-            : "Registro antigo mantido sem alterar posicao.",
-          status: isRefund ? "pending" : "informational",
-          linkedRecordIds: [movement.id],
-          createdAt: now,
-        };
-      });
-    return [...transactionCandidates, ...cashCandidates];
-  }, [assetById, cashMovements, importedMovements, transactions]);
-
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -613,11 +550,8 @@ export default function Transactions() {
 
         <MovementAuditPanel
           importedMovements={importedMovements}
-          corporateActions={corporateActions}
           assets={assets}
           portfolios={portfolios}
-          accountingCount={movements.length}
-          legacyCandidates={legacyCandidates}
           onChanged={load}
         />
 
