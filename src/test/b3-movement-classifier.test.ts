@@ -24,6 +24,61 @@ describe("classifyB3Movement", () => {
     expect(result.classification).toBe("accounting");
   });
 
+  it.each(["Reembolso", "Restituição de capital", "restituicao de capital", "Reembolso de capital"])(
+    "recognizes %s as a cash refund",
+    (movementType) => {
+      const result = classifyB3Movement({
+        movementType,
+        productName: "HGLG11",
+        value: 42.5,
+      });
+
+      expect(result.accountingType).toBe("cash_refund");
+      expect(result.classification).toBe("accounting");
+      expect(result.selectedByDefault).toBe(true);
+    }
+  );
+
+  it.each(["Compra", "Venda", "Resgate", "Transferência"])(
+    "recognizes Tesouro %s as a trade",
+    (movementType) => {
+      const result = classifyB3Movement({
+        movementType,
+        productName: "Tesouro IPCA+ 2035",
+        quantity: 1,
+        value: 3200,
+      });
+
+      expect(result.accountingType).toBe("trade");
+      expect(result.classification).toBe("accounting");
+    }
+  );
+
+  it.each(["Juros", "Rendimento", "Cupom", "Pagamento de juros"])(
+    "recognizes Tesouro %s as yield",
+    (movementType) => {
+      const result = classifyB3Movement({
+        movementType,
+        productName: "Tesouro IPCA+ com Juros Semestrais 2035",
+        value: 80,
+      });
+
+      expect(result.accountingType).toBe("yield");
+      expect(result.classification).toBe("accounting");
+    }
+  );
+
+  it("keeps unknown Tesouro movements pending", () => {
+    const result = classifyB3Movement({
+      movementType: "Atualização",
+      productName: "Tesouro IPCA+ 2035",
+      value: 0,
+    });
+
+    expect(result.classification).toBe("pending");
+    expect(result.selectedByDefault).toBe(false);
+  });
+
   it.each([
     ["Desdobramento", "split"],
     ["Grupamento", "reverse_split"],
