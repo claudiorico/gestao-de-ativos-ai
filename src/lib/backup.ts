@@ -22,6 +22,7 @@ export interface BackupData {
     imported_movements: string | null;
     settings: string | null;
     metadata: string | null;
+    key_verifier?: string | null;
   };
 }
 
@@ -74,6 +75,7 @@ export function createBackupPayload(encryptedData: string): BackupData {
       imported_movements: parsed.imported_movements || null,
       settings: parsed.settings || null,
       metadata: parsed.metadata || null,
+      key_verifier: parsed.key_verifier || null,
     },
   };
 }

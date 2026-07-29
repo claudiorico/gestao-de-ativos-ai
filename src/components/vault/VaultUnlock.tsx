@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Lock, Eye, EyeOff, AlertTriangle, Trash2, HardDrive, Fingerprint } from 'lucide-react';
+import { Lock, Eye, EyeOff, AlertTriangle, Trash2, HardDrive, Fingerprint, Cloud, Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -13,6 +13,13 @@ import { useSecureStorage } from '@/contexts/SecureStorageContext';
 import { useAuthUser } from '@/contexts/GoogleUserContext';
 import { toast } from '@/hooks/use-toast';
 import { isPersistentStorageEnabled, requestPersistentStorage } from '@/lib/indexeddb';
+import { updateSyncStatus } from '@/lib/backup';
+import {
+  downloadFromGoogleDrive,
+  getAppGoogleClientId,
+  initiateGoogleAuth,
+  isGoogleDriveConnected,
+} from '@/lib/google-drive';
 import {
   isBiometricSupported,
   hasBiometricEnrolled,
@@ -57,9 +64,10 @@ function cancelIdleTask(handle: IdleCallbackHandle) {
 }
 
 export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
-  const { unlockVault, wipeAllData, error } = useSecureStorage();
+  const { unlockVault, wipeAllData, importEncryptedBackup, error } = useSecureStorage();
   const { user } = useAuthUser();
   const namespace = user?.uid || 'default';
+  const appClientId = getAppGoogleClientId();
 
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -74,6 +82,7 @@ export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
   const [bioEnrolled, setBioEnrolled] = useState(false);
   const [bioBusy, setBioBusy] = useState(false);
   const [enrollAfterUnlock, setEnrollAfterUnlock] = useState(false);
+  const [isRestoringCloud, setIsRestoringCloud] = useState(false);
 
   useEffect(() => {
     const handle = scheduleIdleTask(() => {
@@ -162,6 +171,48 @@ export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
     disableBiometric(namespace);
     setBioEnrolled(false);
     toast({ title: 'Windows Hello removido deste dispositivo' });
+  };
+
+  const connectDriveIfNeeded = async () => {
+    if (isGoogleDriveConnected()) return;
+    if (!appClientId) {
+      throw new Error('Google Drive nao configurado para este ambiente.');
+    }
+    await initiateGoogleAuth(appClientId);
+  };
+
+  const handleRestoreFromCloud = async () => {
+    setIsRestoringCloud(true);
+    try {
+      await connectDriveIfNeeded();
+      const cloudData = await downloadFromGoogleDrive({ allowInteractive: true });
+      if (!cloudData) {
+        toast({ title: 'Nenhum backup encontrado', description: 'Nao ha cofre salvo no Google Drive.' });
+        return;
+      }
+
+      await importEncryptedBackup(cloudData);
+      updateSyncStatus({
+        lastSyncAt: Date.now(),
+        provider: 'google_drive',
+        autoSyncEnabled: true,
+        existingBackupWarningShown: true,
+        needsReauth: false,
+      });
+      toast({
+        title: 'Cofre restaurado da nuvem',
+        description: 'Agora desbloqueie usando a senha do cofre.',
+      });
+      window.location.reload();
+    } catch (err) {
+      toast({
+        title: 'Nao foi possivel restaurar',
+        description: err instanceof Error ? err.message : 'Tente reconectar o Google Drive.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRestoringCloud(false);
+    }
   };
 
   const handleReset = async () => {
@@ -288,6 +339,35 @@ export function VaultUnlock({ onUnlock, onReset }: VaultUnlockProps) {
               </button>
             </div>
           )}
+
+          <div className="mt-6 rounded-lg border border-border bg-card/50 p-4">
+            <div className="flex items-start gap-3">
+              <Cloud className="mt-0.5 h-5 w-5 text-primary" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Restaurar da nuvem</p>
+                  <p className="text-xs text-muted-foreground">
+                    Baixe novamente o arquivo criptografado do Google Drive se este navegador perdeu
+                    ou corrompeu o cache local.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleRestoreFromCloud}
+                  disabled={isRestoringCloud}
+                >
+                  {isRestoringCloud ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  {isRestoringCloud ? 'Restaurando...' : 'Baixar cofre do Drive'}
+                </Button>
+              </div>
+            </div>
+          </div>
 
           {/* Persistent Storage */}
           <div className="mt-6 rounded-lg border border-border bg-card/50 p-4">
