@@ -33,6 +33,19 @@ function json(body: unknown, init: ResponseInit = {}) {
   });
 }
 
+function withCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(JSON_HEADERS)) {
+    if (!headers.has(key)) headers.set(key, value);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function dispatch(request: Request, env: WorkerEnv): Promise<Response> {
   const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
 
@@ -52,7 +65,7 @@ async function dispatch(request: Request, env: WorkerEnv): Promise<Response> {
 
   if (cacheKey) {
     const cached = await (caches as any).default.match(cacheKey);
-    if (cached) return cached;
+    if (cached) return withCors(cached);
   }
 
   const forwarded = new Request(request.url, {
@@ -75,11 +88,16 @@ async function dispatch(request: Request, env: WorkerEnv): Promise<Response> {
     return cached;
   }
 
-  return response;
+  return withCors(response);
 }
 
 export default {
-  fetch(request: Request, env: WorkerEnv) {
-    return dispatch(request, env);
+  async fetch(request: Request, env: WorkerEnv) {
+    try {
+      return await dispatch(request, env);
+    } catch (error) {
+      console.error("[worker] Unhandled error", error);
+      return json({ error: "Internal worker error" }, { status: 500 });
+    }
   },
 };
