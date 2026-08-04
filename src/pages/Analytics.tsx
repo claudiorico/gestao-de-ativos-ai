@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Wallet, TrendingUp, Coins, AlertTriangle, Percent } from "lucide-react";
+import { Wallet, TrendingUp, Coins, AlertTriangle, HandCoins } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -422,7 +422,7 @@ export default function Analytics() {
 
               <div className="rounded-xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Percent className="h-4 w-4" /> Proventos recebidos
+                  <HandCoins className="h-4 w-4" /> Proventos recebidos
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
                   {isLoading ? "…" : <Blur>{formatCurrency(summary.totalDividends)}</Blur>}
