@@ -315,8 +315,17 @@ function findHeaderIndexes(headerCols: string[]) {
 
 function parseQuotaNumber(raw: string): number | null {
   // INF_DIARIO costuma vir com vírgula decimal.
-  const n = Number(String(raw ?? "").trim().replace(".", "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  const value = String(raw ?? "").trim().replace(/\s/g, "");
+  if (!value) return null;
+
+  const normalized = value.includes(",")
+    ? value.replace(/\./g, "").replace(",", ".")
+    : value.split(".").length > 2
+      ? value.replace(/\.(?=.*\.)/g, "")
+      : value;
+
+  const n = Number(normalized);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 async function fetchFundMonthLastQuotas(

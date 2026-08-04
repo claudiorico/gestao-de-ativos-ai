@@ -63,6 +63,30 @@ function sumSafe(n: number) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function positiveFinite(n: unknown): number | null {
+  const value = Number(n);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function pickPortfolioPrice(
+  historicalPrice: number | null,
+  livePrice: number | undefined,
+  fallbackPrice: number | undefined,
+): number {
+  const live = positiveFinite(livePrice);
+  const fallback = positiveFinite(fallbackPrice);
+  const reference = live ?? fallback;
+
+  if (positiveFinite(historicalPrice) !== null) {
+    const historical = Number(historicalPrice);
+    if (!reference || (historical <= reference * 1000 && historical >= reference / 1000)) {
+      return historical;
+    }
+  }
+
+  return live ?? fallback ?? 0;
+}
+
 // Returns shares held per assetId at a given point in time, derived from transactions
 function computeSharesAtDate(
   transactions: Transaction[],
@@ -257,9 +281,7 @@ export default function Analytics() {
         const historyPoints = historyByTicker[ticker] ?? historyByTicker[`${ticker}.SA`];
         const histPrice = historyPoints ? lastPriceOnOrBefore(historyPoints, t) : null;
         const live = quotes[ticker]?.price ?? quotes[`${ticker}.SA`]?.price;
-        const fallback = asset.averagePrice;
-
-        const price = histPrice ?? live ?? fallback ?? 0;
+        const price = pickPortfolioPrice(histPrice, live, asset.averagePrice);
         holdings += shares * price;
       }
 

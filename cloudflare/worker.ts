@@ -3,6 +3,8 @@ import { handleGetQuotes } from "./get-quotes";
 
 type WorkerEnv = Record<string, string | undefined>;
 
+const CACHE_VERSION = "2026-08-04-history-price-parser";
+
 const JSON_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -60,7 +62,7 @@ async function dispatch(request: Request, env: WorkerEnv): Promise<Response> {
   const body = await request.text();
   const cacheTtl = CACHE_TTL_SECONDS[path] ?? 0;
   const cacheKey = cacheTtl
-    ? new Request(`https://cofre-worker-cache.local${path}?sha=${await sha256Hex(body)}`)
+    ? new Request(`https://cofre-worker-cache.local${path}?v=${CACHE_VERSION}&sha=${await sha256Hex(body)}`)
     : null;
 
   if (cacheKey) {
