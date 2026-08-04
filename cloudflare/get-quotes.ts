@@ -1299,10 +1299,17 @@ export async function handleGetQuotes(req: Request, env: WorkerEnv): Promise<Res
 
     const fundCnpjs = fundEntries.map((n) => normalizeCnpj(n.normalizedTicker));
 
-    const [fundNames, fundQuotas] = await Promise.all([
-      fetchCvmFundNamesBatch(fundCnpjs),
-      fetchCvmFundQuotasBatch(fundCnpjs),
-    ]);
+    const enableCvmFundQuotes = getEnv('ENABLE_CVM_FUND_QUOTES').toLowerCase() === 'true';
+    const [fundNames, fundQuotas] =
+      fundCnpjs.length > 0 && enableCvmFundQuotes
+        ? await Promise.all([
+            fetchCvmFundNamesBatch(fundCnpjs),
+            fetchCvmFundQuotasBatch(fundCnpjs),
+          ])
+        : [
+            Object.fromEntries(fundCnpjs.map((cnpj) => [cnpj, null])),
+            Object.fromEntries(fundCnpjs.map((cnpj) => [cnpj, null])),
+          ];
 
     const fundQuoteByCnpj: Record<string, any> = {};
     for (const { raw, normalizedTicker, digitsLen } of fundEntries) {
@@ -1350,7 +1357,7 @@ export async function handleGetQuotes(req: Request, env: WorkerEnv): Promise<Res
           normalized: cnpj,
           digitsLen,
           isFundCnpj: true,
-          source: 'cvm_batch',
+          source: enableCvmFundQuotes ? 'cvm_batch' : 'cvm_disabled',
         },
       };
     }
