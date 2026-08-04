@@ -15,6 +15,7 @@ import type {
   Dividend,
   ImportedMovement,
   Portfolio,
+  Transaction,
 } from "@/types/financial";
 
 const actionLabels: Record<CorporateActionType, string> = {
@@ -27,10 +28,11 @@ const actionLabels: Record<CorporateActionType, string> = {
   merger: "Incorporacao / conversao",
 };
 
-type ReviewTreatment = "cash_refund" | "dividend" | "corporate_action";
+type ReviewTreatment = "trade" | "cash_refund" | "dividend" | "corporate_action";
 type ReviewDividendType = Extract<Dividend["type"], "dividend" | "jcp" | "yield" | "stock_lending">;
 
 const treatmentLabels: Record<ReviewTreatment, string> = {
+  trade: "Compra/Venda/Resgate",
   cash_refund: "Entrada de caixa / Reembolso",
   dividend: "Provento",
   corporate_action: "Evento corporativo",
@@ -64,6 +66,32 @@ function parseLocaleNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function inferTradeType(movement: ImportedMovement): Transaction["type"] {
+  const text = normalizeText(`${movement.movementType} ${movement.direction ?? ""}`);
+  if (text.includes("venda") || text.includes("resgate") || text.includes("saida")) {
+    return "sell";
+  }
+  return "buy";
+}
+
+function isTradeLikeMovement(movement: ImportedMovement) {
+  const text = normalizeText(`${movement.movementType} ${movement.direction ?? ""} ${movement.productName ?? ""}`);
+  return (
+    text.includes("compra") ||
+    text.includes("venda") ||
+    text.includes("resgate") ||
+    text.includes("transferencia")
+  );
+}
+
 type Props = {
   importedMovements: ImportedMovement[];
   assets: Asset[];
@@ -83,6 +111,7 @@ export function MovementAuditPanel({
     saveDividend,
     saveCashMovement,
     saveImportedMovement,
+    saveTransaction,
   } = useSecureStorage();
   const [reviewing, setReviewing] = useState<ImportedMovement | null>(null);
   const [reviewTreatment, setReviewTreatment] = useState<ReviewTreatment>("corporate_action");
@@ -91,9 +120,12 @@ export function MovementAuditPanel({
   const [destinationAssetId, setDestinationAssetId] = useState("");
   const [actionType, setActionType] = useState<CorporateActionType>("split");
   const [dividendType, setDividendType] = useState<ReviewDividendType>("yield");
+  const [tradeType, setTradeType] = useState<Transaction["type"]>("buy");
   const [ratioNumerator, setRatioNumerator] = useState("");
   const [ratioDenominator, setRatioDenominator] = useState("");
   const [quantityChange, setQuantityChange] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [fees, setFees] = useState("");
   const [costBasisChange, setCostBasisChange] = useState("");
   const [cashValue, setCashValue] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -103,6 +135,16 @@ export function MovementAuditPanel({
     [importedMovements]
   );
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
+  const assetsByPortfolio = useMemo(() => {
+    const map = new Map<string, Asset[]>();
+    for (const asset of assets) {
+      const list = map.get(asset.portfolioId) ?? [];
+      list.push(asset);
+      map.set(asset.portfolioId, list);
+    }
+    return map;
+  }, [assets]);
+  const tradeAssets = portfolioId ? assetsByPortfolio.get(portfolioId) ?? [] : assets;
 
   const openReview = (movement: ImportedMovement) => {
     const matchedAsset = assets.find(
@@ -113,10 +155,13 @@ export function MovementAuditPanel({
       movement.accountingType === "jcp" ||
       movement.accountingType === "yield" ||
       movement.accountingType === "stock_lending";
+    const hasSuggestedTrade = movement.accountingType === "trade" || isTradeLikeMovement(movement);
 
     setReviewing(movement);
     setReviewTreatment(
-      movement.accountingType === "cash_refund"
+      hasSuggestedTrade
+        ? "trade"
+        : movement.accountingType === "cash_refund"
         ? "cash_refund"
         : hasSuggestedDividendType
           ? "dividend"
@@ -127,9 +172,18 @@ export function MovementAuditPanel({
     setDestinationAssetId("");
     setActionType(movement.suggestedCorporateActionType ?? "split");
     setDividendType(hasSuggestedDividendType ? movement.accountingType : "yield");
+    setTradeType(inferTradeType(movement));
     setRatioNumerator("");
     setRatioDenominator("");
     setQuantityChange(movement.quantity > 0 ? String(movement.quantity) : "");
+    setUnitPrice(
+      movement.unitPrice > 0
+        ? String(movement.unitPrice)
+        : movement.quantity > 0 && movement.value > 0
+          ? String(movement.value / movement.quantity)
+          : ""
+    );
+    setFees("");
     setCostBasisChange("");
     setCashValue(movement.value > 0 ? String(movement.value) : "");
   };
@@ -176,6 +230,56 @@ export function MovementAuditPanel({
       reason: `${movement.reason} Aplicado como entrada de caixa.`,
     });
     toast({ title: "Entrada de caixa aplicada" });
+    return true;
+  };
+
+  const saveTradeReview = async (movement: ImportedMovement): Promise<boolean> => {
+    if (!portfolioId || !assetId) {
+      toast({ title: "Selecione portfolio e ativo", variant: "destructive" });
+      return false;
+    }
+
+    const sourceAsset = assetById.get(assetId);
+    if (!sourceAsset || sourceAsset.portfolioId !== portfolioId) {
+      toast({ title: "Selecione um ativo do portfolio escolhido", variant: "destructive" });
+      return false;
+    }
+
+    const shares = parseLocaleNumber(quantityChange) || movement.quantity;
+    const total = parseLocaleNumber(cashValue) || Math.abs(movement.value);
+    const price =
+      parseLocaleNumber(unitPrice) ||
+      (shares > 0 && total > 0 ? total / shares : 0);
+    const parsedFees = parseLocaleNumber(fees);
+
+    if (!(shares > 0) || !(price > 0)) {
+      toast({ title: "Informe quantidade e preco unitario validos", variant: "destructive" });
+      return false;
+    }
+
+    const transactionId = crypto.randomUUID();
+    await saveTransaction({
+      id: transactionId,
+      assetId,
+      portfolioId,
+      type: tradeType,
+      shares,
+      pricePerShare: price,
+      totalValue: total > 0 ? total : shares * price,
+      fees: parsedFees || 0,
+      date: movement.date,
+      notes: `Revisao B3 - ${movement.movementType}`,
+      createdAt: Date.now(),
+    });
+    await saveImportedMovement({
+      ...movement,
+      classification: "accounting",
+      accountingType: "trade",
+      status: "applied",
+      linkedRecordIds: [...movement.linkedRecordIds, transactionId],
+      reason: `${movement.reason} Aplicado como transacao.`,
+    });
+    toast({ title: tradeType === "buy" ? "Compra aplicada" : "Venda/resgate aplicado" });
     return true;
   };
 
@@ -304,7 +408,9 @@ export function MovementAuditPanel({
     setIsSaving(true);
     try {
       let saved = false;
-      if (reviewTreatment === "cash_refund") {
+      if (reviewTreatment === "trade") {
+        saved = await saveTradeReview(reviewing);
+      } else if (reviewTreatment === "cash_refund") {
         saved = await saveCashReview(reviewing);
       } else if (reviewTreatment === "dividend") {
         saved = await saveDividendReview(reviewing);
@@ -424,6 +530,103 @@ export function MovementAuditPanel({
                   </SelectContent>
                 </Select>
               </div>
+
+              {reviewTreatment === "trade" && (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Portfolio</Label>
+                      <Select
+                        value={portfolioId}
+                        onValueChange={(value) => {
+                          setPortfolioId(value);
+                          if (assetId && assetById.get(assetId)?.portfolioId !== value) {
+                            setAssetId("");
+                          }
+                        }}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>
+                          {portfolios.map((portfolio) => (
+                            <SelectItem key={portfolio.id} value={portfolio.id}>
+                              {portfolio.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Ativo</Label>
+                      <Select value={assetId} onValueChange={setAssetId}>
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>
+                          {tradeAssets.map((asset) => (
+                            <SelectItem key={asset.id} value={asset.id}>
+                              {asset.ticker} - {asset.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Tipo</Label>
+                      <Select value={tradeType} onValueChange={(value) => setTradeType(value as Transaction["type"])}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="buy">Compra</SelectItem>
+                          <SelectItem value="sell">Venda / Resgate</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Valor total informado</Label>
+                      <Input
+                        inputMode="decimal"
+                        value={cashValue}
+                        onChange={(event) => setCashValue(event.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Quantidade</Label>
+                      <Input
+                        inputMode="decimal"
+                        value={quantityChange}
+                        onChange={(event) => {
+                          setQuantityChange(event.target.value);
+                          const quantity = parseLocaleNumber(event.target.value);
+                          const total = parseLocaleNumber(cashValue);
+                          if (quantity > 0 && total > 0 && !unitPrice) {
+                            setUnitPrice(String(total / quantity));
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Preco unitario</Label>
+                      <Input
+                        inputMode="decimal"
+                        value={unitPrice}
+                        onChange={(event) => setUnitPrice(event.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Taxas</Label>
+                      <Input
+                        inputMode="decimal"
+                        value={fees}
+                        onChange={(event) => setFees(event.target.value)}
+                        placeholder="0,00"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
               {reviewTreatment === "cash_refund" && (
                 <div className="grid gap-3 sm:grid-cols-2">
