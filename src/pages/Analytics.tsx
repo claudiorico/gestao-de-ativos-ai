@@ -305,11 +305,8 @@ export default function Analytics() {
       if (!Number.isFinite(shares) || shares <= 0) continue;
 
       const ticker = String(asset.ticker ?? "").toUpperCase();
-      const price =
-        quotes[ticker]?.price ??
-        quotes[`${ticker}.SA`]?.price ??
-        asset.averagePrice ??
-        0;
+      const live = quotes[ticker]?.price ?? quotes[`${ticker}.SA`]?.price;
+      const price = pickPortfolioPrice(null, live, asset.averagePrice);
       currentValue += shares * sumSafe(price);
     }
 
