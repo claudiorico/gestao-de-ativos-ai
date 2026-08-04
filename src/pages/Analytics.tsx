@@ -18,6 +18,7 @@ import { usePrices } from "@/hooks/usePrices";
 import { invokeBackendFunction } from "@/lib/backend/functionsClient";
 import { Blur } from "@/components/ui/blur";
 import { computeAssetPositions } from "@/lib/portfolio-summary";
+import { usePortfolios } from "@/hooks/usePortfolios";
 
 type HistoryPoint = { t: number; price: number };
 type TickerHistory = { ticker: string; points: HistoryPoint[] };
@@ -127,6 +128,7 @@ export default function Analytics() {
   const { isUnlocked, getAssets, getTransactions, getDividends, getCorporateActions } =
     useSecureStorage();
   const { quotes, fetchQuotes, isLoading: isPricesLoading, error: pricesError } = usePrices();
+  const { dashboardMetrics, isLoading: isPortfolioSummaryLoading } = usePortfolios();
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -295,7 +297,7 @@ export default function Analytics() {
   }, [assets, corporateActions, dividends, historyByTicker, isUnlocked, months, quotes, transactions, transactionsByAssetId]);
 
   // Summary cards: use current quotes for live portfolio value
-  const summary = useMemo(() => {
+  const calculatedSummary = useMemo(() => {
     let currentValue = 0;
     for (const asset of assets) {
       const txsForAsset = transactionsByAssetId.get(asset.id) ?? [];
@@ -321,6 +323,18 @@ export default function Analytics() {
 
     return { currentValue, costBasis, result, returnPct, totalDividends };
   }, [assets, corporateActions, derivedSharesNowByAssetId, dividends, quotes, transactions, transactionsByAssetId]);
+
+  const summary = useMemo(() => {
+    if (!dashboardMetrics) return calculatedSummary;
+
+    return {
+      currentValue: dashboardMetrics.totalValue,
+      costBasis: dashboardMetrics.totalCost,
+      result: dashboardMetrics.totalGain,
+      returnPct: dashboardMetrics.totalGainPercent,
+      totalDividends: calculatedSummary.totalDividends,
+    };
+  }, [calculatedSummary, dashboardMetrics]);
 
   const hasData = isUnlocked && (assets.length > 0 || transactions.length > 0);
 
@@ -373,7 +387,7 @@ export default function Analytics() {
                   <Wallet className="h-4 w-4" /> Valor atual do portfólio
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {isLoading ? "…" : <Blur>{formatCurrency(summary.currentValue)}</Blur>}
+                  {isLoading || isPortfolioSummaryLoading ? "…" : <Blur>{formatCurrency(summary.currentValue)}</Blur>}
                 </div>
               </div>
 
@@ -382,7 +396,7 @@ export default function Analytics() {
                   <Coins className="h-4 w-4" /> Custo total investido
                 </div>
                 <div className="text-2xl font-bold text-foreground tabular-nums">
-                  {isLoading ? "…" : <Blur>{formatCurrency(summary.costBasis)}</Blur>}
+                  {isLoading || isPortfolioSummaryLoading ? "…" : <Blur>{formatCurrency(summary.costBasis)}</Blur>}
                 </div>
               </div>
 
@@ -396,9 +410,9 @@ export default function Analytics() {
                     (summary.result >= 0 ? "text-success" : "text-destructive")
                   }
                 >
-                  {isLoading ? "…" : <Blur>{formatCurrency(summary.result)}</Blur>}
+                  {isLoading || isPortfolioSummaryLoading ? "…" : <Blur>{formatCurrency(summary.result)}</Blur>}
                 </div>
-                {!isLoading && summary.costBasis > 0 && (
+                {!isLoading && !isPortfolioSummaryLoading && summary.costBasis > 0 && (
                   <div className="text-xs text-muted-foreground tabular-nums">
                     {summary.returnPct >= 0 ? "+" : ""}
                     {summary.returnPct.toFixed(2)}% sobre o custo
