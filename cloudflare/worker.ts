@@ -2,13 +2,16 @@ import { handleAnalyzePortfolio } from "./analyze-portfolio";
 import { handleGetPriceHistory } from "./get-price-history";
 import { handleGetQuotes } from "./get-quotes";
 
-type WorkerEnv = Record<string, string | undefined>;
+type WorkerEnv = Record<string, string | undefined> & {
+  AI?: unknown;
+};
 
 const CACHE_VERSION = "2026-08-04-history-price-parser";
+const WORKER_VERSION = "2026-08-06-portfolio-ai-health";
 
 const JSON_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, x-api-key, content-type",
   "Content-Type": "application/json",
 };
@@ -54,6 +57,21 @@ async function dispatch(request: Request, env: WorkerEnv): Promise<Response> {
 
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: JSON_HEADERS });
+  }
+
+  if (request.method === "GET" && (path === "/health" || path === "/")) {
+    return json({
+      ok: true,
+      worker: "cofre-investimentos-functions",
+      version: WORKER_VERSION,
+      cacheVersion: CACHE_VERSION,
+      endpoints: ["/get-quotes", "/get-price-history", "/analyze-portfolio"],
+      portfolioAi: {
+        enabled: true,
+        workersAiBinding: Boolean(env.AI),
+        model: env.WORKERS_AI_MODEL ?? "@cf/zai-org/glm-4.7-flash",
+      },
+    });
   }
 
   if (request.method !== "POST") {

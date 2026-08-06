@@ -55,3 +55,17 @@ Resultado esperado:
 - diagnostico local aparece sem depender da IA;
 - leitura da IA aparece no bloco `Leitura da IA`;
 - se Workers AI falhar, a tela mostra mensagem de indisponibilidade sem quebrar o restante da pagina.
+
+## Validacao Tecnica Sem Dados Do Cofre
+
+Abra no navegador:
+
+```text
+https://cofre-investimentos-functions.claudiorico81-20f.workers.dev/health
+```
+
+Resultado esperado:
+
+- `ok: true`
+- `portfolioAi.workersAiBinding: true`
+- `portfolioAi.model: "@cf/zai-org/glm-4.7-flash"`
