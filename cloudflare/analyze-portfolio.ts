@@ -267,7 +267,45 @@ async function callOpenAi(body: Required<Pick<AnalyzePortfolioBody, "riskProfile
     ],
     text: {
       format: {
-        type: "json_object",
+        type: "json_schema",
+        name: "portfolio_ai_analysis",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            summary: { type: "string" },
+            risks: {
+              type: "array",
+              items: { type: "string" },
+            },
+            opportunities: {
+              type: "array",
+              items: { type: "string" },
+            },
+            suggestedActions: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  title: { type: "string" },
+                  description: { type: "string" },
+                  tickers: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                },
+                required: ["title", "description", "tickers"],
+              },
+            },
+            questions: {
+              type: "array",
+              items: { type: "string" },
+            },
+          },
+          required: ["summary", "risks", "opportunities", "suggestedActions", "questions"],
+        },
       },
     },
   };
