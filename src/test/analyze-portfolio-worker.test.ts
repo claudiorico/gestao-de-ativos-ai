@@ -99,19 +99,25 @@ describe("handleAnalyzePortfolio", () => {
         ...env,
         AI: {
           run: async () => ({
-            response: JSON.stringify({
-              summary: "Carteira com oportunidade de rebalanceamento.",
-              risks: ["Concentracao em BBB3."],
-              opportunities: ["Aporte em AAA3 aproxima do alvo."],
-              suggestedActions: [
-                {
-                  title: "Simular aporte",
-                  description: "Avaliar AAA3 dentro do alvo cadastrado.",
-                  tickers: ["AAA3"],
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: "Carteira com oportunidade de rebalanceamento.",
+                    risks: ["Concentracao em BBB3."],
+                    opportunities: ["Aporte em AAA3 aproxima do alvo."],
+                    suggestedActions: [
+                      {
+                        title: "Simular aporte",
+                        description: "Avaliar AAA3 dentro do alvo cadastrado.",
+                        tickers: ["AAA3"],
+                      },
+                    ],
+                    questions: ["A tese de AAA3 continua valida?"],
+                  }),
                 },
-              ],
-              questions: ["A tese de AAA3 continua valida?"],
-            }),
+              },
+            ],
           }),
         },
       },

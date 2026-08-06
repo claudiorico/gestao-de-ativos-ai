@@ -227,6 +227,7 @@ function extractResponseText(payload: any): string {
   if (typeof payload?.response === "string") return payload.response;
   if (typeof payload?.result?.response === "string") return payload.result.response;
   if (typeof payload?.text === "string") return payload.text;
+  if (typeof payload?.choices?.[0]?.message?.content === "string") return payload.choices[0].message.content;
   if (typeof payload?.output_text === "string") return payload.output_text;
 
   const chunks: string[] = [];
@@ -262,24 +263,35 @@ async function callWorkersAi(body: Required<Pick<AnalyzePortfolioBody, "riskProf
 }, env: WorkerEnv) {
   if (!env.AI?.run) return null;
 
-  const model = String(env.WORKERS_AI_MODEL ?? "@cf/meta/llama-3.1-8b-instruct").trim();
-  const prompt = [
-    "Voce e um assistente de analise de carteira para uso privado.",
-    "Responda em portugues do Brasil, apenas em JSON valido, sem markdown.",
-    "Nao prometa resultado, nao de recomendacao financeira definitiva e trate tudo como cenario educativo.",
-    "Foque em riscos de concentracao, lacunas de alocacao, perguntas de diligencia e simulacoes de aporte.",
-    "Formato obrigatorio: {\"summary\":\"string\",\"risks\":[\"string\"],\"opportunities\":[\"string\"],\"suggestedActions\":[{\"title\":\"string\",\"description\":\"string\",\"tickers\":[\"string\"]}],\"questions\":[\"string\"]}.",
-    JSON.stringify({
+  const model = String(env.WORKERS_AI_MODEL ?? "@cf/zai-org/glm-4.7-flash").trim();
+  const messages = [
+    {
+      role: "system",
+      content: [
+        "Voce e um assistente de analise de carteira para uso privado.",
+        "Responda em portugues do Brasil, apenas em JSON valido, sem markdown.",
+        "Nao prometa resultado, nao de recomendacao financeira definitiva e trate tudo como cenario educativo.",
+        "Foque em riscos de concentracao, lacunas de alocacao, perguntas de diligencia e simulacoes de aporte.",
+        "Formato obrigatorio: {\"summary\":\"string\",\"risks\":[\"string\"],\"opportunities\":[\"string\"],\"suggestedActions\":[{\"title\":\"string\",\"description\":\"string\",\"tickers\":[\"string\"]}],\"questions\":[\"string\"]}.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
       riskProfile: body.riskProfile,
       objective: body.objective,
       contributionAmount: body.contributionAmount,
       totals: body.totals,
       holdings: body.holdings.slice(0, 80),
       localAnalysis: body.local,
-    }),
-  ].join("\n\n");
+      }),
+    },
+  ];
 
-  const response = await env.AI.run(model, { prompt });
+  const response = await env.AI.run(model, {
+    messages,
+    response_format: { type: "json_object" },
+  });
   const text = extractResponseText(response);
   return parseJsonObject(text);
 }
