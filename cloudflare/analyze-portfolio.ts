@@ -364,6 +364,9 @@ export async function handleAnalyzePortfolio(req: Request, env: WorkerEnv): Prom
   if (body.includeAi) {
     try {
       ai = await callOpenAi({ riskProfile, objective, contributionAmount, holdings, totals, local }, env);
+      if (!ai) {
+        aiUnavailable = "A chave da OpenAI ainda nao esta configurada no Worker. O diagnostico local foi gerado normalmente.";
+      }
     } catch (error) {
       console.error("[analyze-portfolio] OpenAI call failed", error);
       aiUnavailable = "A analise por IA nao respondeu agora. O diagnostico local foi gerado normalmente.";
