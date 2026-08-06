@@ -76,6 +76,15 @@ Ou rode:
 npm run worker:health
 ```
 
+Se o Node reclamar de certificado no Windows:
+
+```powershell
+$env:NODE_OPTIONS = "--use-system-ca"
+npm run worker:health
+```
+
+Se retornar `HTTP 405`, o Worker publicado ainda esta em uma versao antiga. Rode `npm run worker:deploy` e valide novamente.
+
 Para outro endpoint:
 
 ```powershell

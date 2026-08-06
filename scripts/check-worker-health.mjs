@@ -9,6 +9,11 @@ async function main() {
   const text = await response.text();
 
   if (!response.ok) {
+    if (response.status === 405) {
+      throw new Error(
+        `Worker health returned HTTP 405. The published Worker is probably older and does not include /health yet. Run npm run worker:deploy, then retry npm run worker:health.`,
+      );
+    }
     throw new Error(`Worker health returned HTTP ${response.status}: ${text.slice(0, 300)}`);
   }
 
@@ -40,6 +45,10 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error.message);
+  const cause = error?.cause ? `; cause: ${error.cause.message ?? error.cause}` : "";
+  console.error(`${error.message}${cause}`);
+  if (String(error?.cause?.message ?? "").includes("certificate")) {
+    console.error("Try again with: $env:NODE_OPTIONS='--use-system-ca'; npm run worker:health");
+  }
   process.exit(1);
 });
