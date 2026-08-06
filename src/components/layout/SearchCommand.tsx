@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Briefcase, TrendingUp } from "lucide-react";
+import { Search, Briefcase, TrendingUp, BrainCircuit } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -15,6 +15,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSecureStorage } from "@/contexts/SecureStorageContext";
+import { useAuthUser } from "@/contexts/GoogleUserContext";
+import { canUsePortfolioAi } from "@/lib/ai-access";
 import type { Asset, Portfolio } from "@/types/financial";
 
 export function SearchCommand() {
@@ -24,6 +26,8 @@ export function SearchCommand() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const navigate = useNavigate();
   const { isUnlocked, getPortfolios, getAssets } = useSecureStorage();
+  const { user } = useAuthUser();
+  const canAccessAi = canUsePortfolioAi(user?.email);
 
   useEffect(() => {
     if (!isUnlocked) {
@@ -142,6 +146,23 @@ export function SearchCommand() {
                   <span>{portfolio.name}</span>
                 </CommandItem>
                   ))}
+              </CommandGroup>
+            )}
+
+            {canAccessAi && search && "ia inteligencia artificial portfolio portifolio analise aporte".includes(search.toLowerCase()) && (
+              <CommandGroup heading="Ferramentas">
+                <CommandItem
+                  value="IA do Portifolio"
+                  onSelect={() => {
+                    setOpen(false);
+                    setSearch("");
+                    navigate("/ai-portfolio");
+                  }}
+                  className="flex cursor-pointer items-center gap-2"
+                >
+                  <BrainCircuit className="h-4 w-4 text-muted-foreground" />
+                  <span>IA do Portifolio</span>
+                </CommandItem>
               </CommandGroup>
             )}
 

@@ -9,9 +9,12 @@ import {
   Coins,
   Receipt,
   BarChart3,
+  BrainCircuit,
   Settings,
   TrendingUp,
 } from "lucide-react";
+import { useAuthUser } from "@/contexts/GoogleUserContext";
+import { canUsePortfolioAi } from "@/lib/ai-access";
 import {
   Sidebar,
   SidebarContent,
@@ -38,6 +41,14 @@ const menuItems = [
 export function AppSidebar() {
   const { setOpen, setOpenMobile, open, isMobile } = useSidebar();
   const location = useLocation();
+  const { user } = useAuthUser();
+  const visibleMenuItems = canUsePortfolioAi(user?.email)
+    ? [
+        ...menuItems.slice(0, 7),
+        { title: "IA do Portifolio", url: "/ai-portfolio", icon: BrainCircuit },
+        ...menuItems.slice(7),
+      ]
+    : menuItems;
 
   // Close sidebar on route change in mobile
   useEffect(() => {
@@ -78,7 +89,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => {
+              {visibleMenuItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.url;
                 

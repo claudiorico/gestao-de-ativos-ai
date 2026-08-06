@@ -1,3 +1,4 @@
+import { handleAnalyzePortfolio } from "./analyze-portfolio";
 import { handleGetPriceHistory } from "./get-price-history";
 import { handleGetQuotes } from "./get-quotes";
 
@@ -77,7 +78,9 @@ async function dispatch(request: Request, env: WorkerEnv): Promise<Response> {
   });
 
   const response =
-    path === "/get-quotes"
+    path === "/analyze-portfolio"
+      ? await handleAnalyzePortfolio(forwarded, env)
+      : path === "/get-quotes"
       ? await handleGetQuotes(forwarded, env)
       : path === "/get-price-history"
         ? await handleGetPriceHistory(forwarded, env)

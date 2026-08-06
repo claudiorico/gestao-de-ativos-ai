@@ -38,6 +38,7 @@ const TransactionNew = lazy(() => import("./pages/TransactionNew"));
 const Dividends = lazy(() => import("./pages/Dividends"));
 const Taxes = lazy(() => import("./pages/Taxes"));
 const Analytics = lazy(() => import("./pages/Analytics"));
+const AiPortfolio = lazy(() => import("./pages/AiPortfolio"));
 const Settings = lazy(() => import("./pages/Settings"));
 
 const queryClient = new QueryClient();
@@ -122,6 +123,10 @@ function AppContent() {
             <Route
               path="/analytics"
               element={<Suspense fallback={<RouteFallback />}><Analytics /></Suspense>}
+            />
+            <Route
+              path="/ai-portfolio"
+              element={<Suspense fallback={<RouteFallback />}><AiPortfolio /></Suspense>}
             />
             <Route
               path="/settings"
