@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "worker:dev": "wrangler dev --config cloudflare/wrangler.toml",
-    "worker:deploy": "wrangler deploy --config cloudflare/wrangler.toml"
+    "worker:deploy": "wrangler deploy --config cloudflare/wrangler.toml",
+    "worker:health": "node scripts/check-worker-health.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

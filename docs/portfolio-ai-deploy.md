@@ -69,3 +69,16 @@ Resultado esperado:
 - `ok: true`
 - `portfolioAi.workersAiBinding: true`
 - `portfolioAi.model: "@cf/zai-org/glm-4.7-flash"`
+
+Ou rode:
+
+```powershell
+npm run worker:health
+```
+
+Para outro endpoint:
+
+```powershell
+$env:WORKER_HEALTH_URL = "https://seu-worker.workers.dev/health"
+npm run worker:health
+```
