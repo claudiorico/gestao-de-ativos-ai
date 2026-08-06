@@ -23,6 +23,25 @@ O dry-run deve listar:
 - `env.AI_ANALYSIS_EMAILS`
 - `env.WORKERS_AI_MODEL ("@cf/zai-org/glm-4.7-flash")`
 
+## Publicacao Pelo GitHub Actions
+
+O repositorio tambem tem o workflow `Deploy Cloudflare Worker`.
+
+Para ativar:
+
+1. Abra o repositorio no GitHub.
+2. Va em `Settings` > `Secrets and variables` > `Actions`.
+3. Crie o secret `CLOUDFLARE_API_TOKEN`.
+4. Abra `Actions` > `Deploy Cloudflare Worker`.
+5. Clique em `Run workflow`.
+
+O workflow tambem roda automaticamente em push para `main` quando houver mudanca em:
+
+- `cloudflare/**`
+- `scripts/check-worker-health.mjs`
+- `package.json`
+- `.github/workflows/deploy-worker.yml`
+
 ## Configuracao Esperada
 
 O Worker usa Workers AI como provedor principal:
