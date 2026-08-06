@@ -10,3 +10,6 @@ enabled = true
 [vars]
 # Comma-separated host allowlist. Add preview domains only if you want them to call the Worker.
 ALLOWED_ORIGIN_HOSTS = "cofreinvestimentos.com.br,www.cofreinvestimentos.com.br,localhost,127.0.0.1,vercel.app"
+# Private portfolio AI access. OPENAI_API_KEY must be configured as a Worker secret.
+AI_ANALYSIS_EMAILS = "claudiorico81@gmail.com,claudiorico81@hotmail.com"
+OPENAI_MODEL = "gpt-5"
