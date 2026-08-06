@@ -92,7 +92,38 @@ describe("handleAnalyzePortfolio", () => {
     expect(data.ai).toBeNull();
   });
 
-  it("informa indisponibilidade quando IA e pedida sem OPENAI_API_KEY", async () => {
+  it("usa Workers AI quando o binding esta disponivel", async () => {
+    const response = await handleAnalyzePortfolio(
+      request({ ...validPayload, includeAi: true }),
+      {
+        ...env,
+        AI: {
+          run: async () => ({
+            response: JSON.stringify({
+              summary: "Carteira com oportunidade de rebalanceamento.",
+              risks: ["Concentracao em BBB3."],
+              opportunities: ["Aporte em AAA3 aproxima do alvo."],
+              suggestedActions: [
+                {
+                  title: "Simular aporte",
+                  description: "Avaliar AAA3 dentro do alvo cadastrado.",
+                  tickers: ["AAA3"],
+                },
+              ],
+              questions: ["A tese de AAA3 continua valida?"],
+            }),
+          }),
+        },
+      },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.ai.summary).toContain("rebalanceamento");
+    expect(data.aiUnavailable).toBeNull();
+  });
+
+  it("informa indisponibilidade quando IA e pedida sem provedor configurado", async () => {
     const response = await handleAnalyzePortfolio(
       request({ ...validPayload, includeAi: true }),
       env,
@@ -101,6 +132,6 @@ describe("handleAnalyzePortfolio", () => {
 
     expect(response.status).toBe(200);
     expect(data.ai).toBeNull();
-    expect(data.aiUnavailable).toContain("OpenAI");
+    expect(data.aiUnavailable).toContain("Nenhum provedor");
   });
 });

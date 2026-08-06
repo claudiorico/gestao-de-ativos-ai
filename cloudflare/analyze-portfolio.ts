@@ -1,4 +1,10 @@
-type WorkerEnv = Record<string, string | undefined>;
+type WorkerAiBinding = {
+  run: (model: string, input: unknown, options?: unknown) => Promise<unknown>;
+};
+
+type WorkerEnv = Record<string, string | undefined> & {
+  AI?: WorkerAiBinding;
+};
 
 type DiagnosticSeverity = "info" | "warning" | "critical";
 type AiRiskProfile = "conservative" | "balanced" | "growth";
@@ -217,6 +223,10 @@ function buildLocalAnalysis(holdings: AiPortfolioHolding[], totals: AiPortfolioT
 }
 
 function extractResponseText(payload: any): string {
+  if (typeof payload === "string") return payload;
+  if (typeof payload?.response === "string") return payload.response;
+  if (typeof payload?.result?.response === "string") return payload.result.response;
+  if (typeof payload?.text === "string") return payload.text;
   if (typeof payload?.output_text === "string") return payload.output_text;
 
   const chunks: string[] = [];
@@ -226,6 +236,52 @@ function extractResponseText(payload: any): string {
     }
   }
   return chunks.join("\n").trim();
+}
+
+function parseJsonObject(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    }
+    throw new Error("AI response did not contain valid JSON");
+  }
+}
+
+async function callWorkersAi(body: Required<Pick<AnalyzePortfolioBody, "riskProfile" | "objective">> & {
+  contributionAmount: number;
+  holdings: AiPortfolioHolding[];
+  totals: AiPortfolioTotals;
+  local: unknown;
+}, env: WorkerEnv) {
+  if (!env.AI?.run) return null;
+
+  const model = String(env.WORKERS_AI_MODEL ?? "@cf/meta/llama-3.1-8b-instruct").trim();
+  const prompt = [
+    "Voce e um assistente de analise de carteira para uso privado.",
+    "Responda em portugues do Brasil, apenas em JSON valido, sem markdown.",
+    "Nao prometa resultado, nao de recomendacao financeira definitiva e trate tudo como cenario educativo.",
+    "Foque em riscos de concentracao, lacunas de alocacao, perguntas de diligencia e simulacoes de aporte.",
+    "Formato obrigatorio: {\"summary\":\"string\",\"risks\":[\"string\"],\"opportunities\":[\"string\"],\"suggestedActions\":[{\"title\":\"string\",\"description\":\"string\",\"tickers\":[\"string\"]}],\"questions\":[\"string\"]}.",
+    JSON.stringify({
+      riskProfile: body.riskProfile,
+      objective: body.objective,
+      contributionAmount: body.contributionAmount,
+      totals: body.totals,
+      holdings: body.holdings.slice(0, 80),
+      localAnalysis: body.local,
+    }),
+  ].join("\n\n");
+
+  const response = await env.AI.run(model, { prompt });
+  const text = extractResponseText(response);
+  return parseJsonObject(text);
 }
 
 async function callOpenAi(body: Required<Pick<AnalyzePortfolioBody, "riskProfile" | "objective">> & {
@@ -363,12 +419,15 @@ export async function handleAnalyzePortfolio(req: Request, env: WorkerEnv): Prom
 
   if (body.includeAi) {
     try {
-      ai = await callOpenAi({ riskProfile, objective, contributionAmount, holdings, totals, local }, env);
+      ai = await callWorkersAi({ riskProfile, objective, contributionAmount, holdings, totals, local }, env);
       if (!ai) {
-        aiUnavailable = "A chave da OpenAI ainda nao esta configurada no Worker. O diagnostico local foi gerado normalmente.";
+        ai = await callOpenAi({ riskProfile, objective, contributionAmount, holdings, totals, local }, env);
+      }
+      if (!ai) {
+        aiUnavailable = "Nenhum provedor de IA esta configurado no Worker. O diagnostico local foi gerado normalmente.";
       }
     } catch (error) {
-      console.error("[analyze-portfolio] OpenAI call failed", error);
+      console.error("[analyze-portfolio] AI provider call failed", error);
       aiUnavailable = "A analise por IA nao respondeu agora. O diagnostico local foi gerado normalmente.";
     }
   }
