@@ -194,6 +194,10 @@ export default function AiPortfolio() {
       setError("Marque a autorizacao para enviar o resumo agregado para a IA.");
       return;
     }
+    if (holdings.length === 0) {
+      setError("Nao encontrei ativos com valor ou alvo para enviar. Abra uma carteira, aguarde o carregamento e tente novamente.");
+      return;
+    }
     setIsAnalyzing(true);
     setError(null);
 
@@ -361,7 +365,7 @@ export default function AiPortfolio() {
               <Button
                 className="w-full gap-2"
                 onClick={runAiAnalysis}
-                disabled={isAnalyzing || holdings.length === 0 || isLoading || !consent}
+                disabled={isAnalyzing || !consent}
               >
                 {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {consent ? "Analisar com IA" : "Autorize o envio para analisar"}
@@ -375,6 +379,11 @@ export default function AiPortfolio() {
               )}
               {isPricesLoading && (
                 <p className="text-xs text-muted-foreground">Atualizando cotacoes antes de consolidar a leitura.</p>
+              )}
+              {consent && holdings.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Nenhum ativo elegivel foi encontrado ainda. Se sua carteira acabou de abrir, aguarde alguns segundos.
+                </p>
               )}
             </CardContent>
           </Card>
